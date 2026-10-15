@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%232f5bd3%22/%3E%3C/svg%3E">
+<title>Capability Marketplace</title>
+<style>
+:root {
+  --bg: #f5f7fa; --surface: #ffffff; --surface-2: #f8fafc; --border: #e2e7ee; --border-strong: #cfd6e0;
+  --text: #1a1f26; --muted: #5d6877; --faint: #8a94a3;
+  --accent: #2f5fd6; --accent-hover: #264fb7; --accent-soft: #eaf0fd; --on-accent: #ffffff;
+  --good: #187a52; --good-soft: #e2f4ec; --warn: #8f5600; --warn-soft: #fdf0d8; --bad: #b83232; --bad-soft: #fde6e6;
+  --radius: 10px; --radius-sm: 7px;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  --shadow-lg: 0 10px 30px rgba(16,24,40,.12);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.2,.7,.2,1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1318; --surface: #161b22; --surface-2: #1b2129; --border: #29313c; --border-strong: #36404d;
+    --text: #e6eaf0; --muted: #9aa5b4; --faint: #6e7987;
+    --accent: #6d95ff; --accent-hover: #87a8ff; --accent-soft: #1b2843; --on-accent: #0c1220;
+    --good: #4cc790; --good-soft: #13291f; --warn: #e9b056; --warn-soft: #2d2412; --bad: #f07575; --bad-soft: #321718;
+    --shadow: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 10px 30px rgba(0,0,0,.5);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+a { color: var(--accent); }
+
+/* ---------- shell ---------- */
+.topbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: saturate(1.4) blur(8px); border-bottom: 1px solid var(--border); }
+.topbar-inner { max-width: 1240px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.brand { font-weight: 650; font-size: 14.5px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.conn { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.conn input { width: 104px; }
+.tabs { max-width: 1240px; margin: 0 auto; padding: 0 12px; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.tab { position: relative; background: none; border: 0; padding: 10px 12px; color: var(--muted); font-weight: 600; font-size: 13.5px; cursor: pointer; border-radius: 0; white-space: nowrap; transition: color .15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); }
+.tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.tab .count { margin-left: 6px; }
+main { max-width: 1240px; margin: 0 auto; padding: 20px 16px 120px; }
+.panel { display: none; }
+.panel.active { display: block; animation: rise .22s var(--ease); }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ---------- primitives ---------- */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 16px; }
+.card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+.card-head h2 { font-size: 14.5px; margin: 0; }
+.card-head .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.step-num { display: inline-flex; width: 21px; height: 21px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-size: 11.5px; font-weight: 700; align-items: center; justify-content: center; }
+.sub { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+.field.w-auto { flex: 0 0 auto; min-width: 0; }
+.field.w-s { flex: 0 0 130px; min-width: 110px; }
+.label { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.hint { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 7px 10px; transition: border-color .15s, box-shadow .15s; width: 100%; }
+input[type=checkbox], input[type=radio] { width: auto; accent-color: var(--accent); }
+input[type=range] { padding: 0; border: 0; accent-color: var(--accent); }
+textarea { resize: vertical; font-family: var(--mono); font-size: 12.5px; min-height: 38px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.invalid { border-color: var(--bad) !important; box-shadow: 0 0 0 3px var(--bad-soft) !important; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600; font-size: 13px; padding: 7px 13px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s, color .15s, transform .05s, opacity .15s; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-2); }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.btn-good { background: var(--good); color: #fff; }
+.btn-danger { background: var(--surface); color: var(--bad); border-color: var(--border-strong); }
+.btn-danger:hover:not(:disabled) { background: var(--bad-soft); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn[aria-busy=true]::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
+.badge.good { background: var(--good-soft); color: var(--good); border-color: transparent; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.badge.info { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.solid { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
+.seg button { font: inherit; font-size: 12.5px; font-weight: 600; border: 0; background: transparent; color: var(--muted); padding: 5px 11px; border-radius: 5px; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: inherit; font-size: 12px; font-family: var(--mono); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--muted); cursor: pointer; transition: all .15s; }
+.chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.empty { text-align: center; color: var(--muted); font-size: 13px; padding: 22px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); }
+.empty b { color: var(--text); }
+.skeleton { height: 64px; border-radius: var(--radius); margin-top: 10px; background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: shimmer 1.2s ease infinite; }
+@keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+.divider { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: 12.5px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+pre.json { margin: 0; font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 9px; overflow: auto; max-height: 160px; }
+details > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; font-weight: 600; list-style: none; }
+details > summary::before { content: "▸ "; transition: transform .15s; display: inline-block; }
+details[open] > summary::before { transform: rotate(90deg); }
+
+/* ---------- toasts ---------- */
+#toasts { position: fixed; right: 16px; bottom: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 32px));; transition: bottom .25s var(--ease); }
+body.ab-open #toasts { bottom: calc(var(--ab-h, 64px) + 12px); }
+.toast { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); padding: 10px 12px; font-size: 13px; display: flex; gap: 10px; align-items: flex-start; animation: toastIn .25s var(--ease); white-space: pre-wrap; }
+.toast.good { border-left-color: var(--good); } .toast.bad { border-left-color: var(--bad); } .toast.warn { border-left-color: var(--warn); }
+.toast .x { margin-left: auto; background: none; border: 0; color: var(--faint); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
+.toast.leaving { animation: toastOut .2s ease forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to { opacity: 0; transform: translateX(16px); } }
+
+/* ---------- builder layout ---------- */
+.builder-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.builder-grid .sticky { position: sticky; top: 104px; }
+@media (max-width: 980px) { .builder-grid { grid-template-columns: 1fr; } .builder-grid .sticky { position: static; } }
+.results { max-height: 70vh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
+.cap { border: 1px solid var(--border); border-radius: var(--radius); margin-top: 10px; overflow: hidden; background: var(--surface); transition: border-color .15s, box-shadow .15s; }
+.cap:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
+.cap-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.cap-head .name { font-weight: 650; }
+.cap-head .owner { font-size: 11.5px; color: var(--faint); }
+.cap-head .end { margin-left: auto; }
+.cap-desc { padding: 8px 12px 2px; font-size: 12.5px; color: var(--muted); }
+.tool { display: flex; gap: 10px; align-items: flex-start; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12.5px; transition: background .15s; }
+.tool:first-child { border-top: 0; }
+.tool.match { background: var(--accent-soft); }
+.tool .body { flex: 1; min-width: 0; }
+.tool .tname { font-family: var(--mono); font-weight: 650; font-size: 12px; }
+.tool .params { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 3px; }
+.tool .params b { color: var(--text); font-weight: 600; }
+.step { border: 1px solid var(--border); border-radius: var(--radius); margin-top: 10px; background: var(--surface); animation: rise .2s var(--ease); }
+.step-top { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.step-top .idx { font-weight: 700; color: var(--accent); font-size: 12px; min-width: 22px; }
+.step-top .sid { width: 112px; font-family: var(--mono); font-size: 12px; padding: 4px 7px; }
+.step-top .where { font-size: 12px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 140px; }
+.step-top .ctl { display: flex; gap: 2px; margin-left: auto; }
+.step-top select { width: auto; padding: 4px 7px; font-size: 12.5px; }
+.step-body { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 640px) { .step-body { grid-template-columns: 1fr; } }
+.step-foot { padding: 0 10px 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.step-foot label { display: inline-flex; gap: 4px; align-items: center; font-family: var(--mono); font-size: 11.5px; }
+.flags { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ---------- runtime & policy ---------- */
+.subtabs { margin: 8px 0 14px; }
+.subpanel { display: none; } .subpanel.active { display: block; animation: rise .18s var(--ease); }
+.cb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.opt { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; transition: border-color .15s, background .15s; }
+.opt.on { border-color: var(--accent); background: var(--accent-soft); }
+.opt label.main { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 13px; cursor: pointer; }
+.opt .meta { font-family: var(--mono); font-size: 10.5px; color: var(--faint); font-weight: 500; }
+.opt .desc { font-size: 12px; color: var(--muted); margin: 3px 0 0 24px; }
+.opt input[type=text], .opt input[type=number] { margin: 7px 0 0 24px; width: calc(100% - 24px); font-size: 12px; padding: 5px 8px; }
+.policy-block { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; }
+.policy-block h3 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+.range-row { display: flex; gap: 10px; align-items: center; }
+.range-row output { font-family: var(--mono); font-weight: 650; min-width: 40px; }
+.rule { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; margin-top: 8px; background: var(--surface-2); animation: rise .18s var(--ease); }
+.rule-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rule-top input.rname { width: 170px; }
+.cond { display: grid; grid-template-columns: 1.3fr .9fr 1.2fr auto; gap: 6px; margin-top: 6px; }
+@media (max-width: 640px) { .cond { grid-template-columns: 1fr 1fr; } }
+.effect-allow { color: var(--good); } .effect-deny { color: var(--bad); } .effect-require_approval { color: var(--warn); }
+
+/* ---------- action bar ---------- */
+.actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(8px); border-top: 1px solid var(--border); transform: translateY(100%); transition: transform .25s var(--ease); }
+.actionbar:not(.show) { visibility: hidden; transition: transform .25s var(--ease), visibility 0s .25s; }
+.actionbar.show { transform: none; }
+.actionbar-inner { max-width: 1240px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.actionbar .summary { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); }
+.actionbar .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.actionbar input { width: 220px; }
+@media (max-width: 560px) { .actionbar .end { margin-left: 0; width: 100%; } .actionbar input { flex: 1; width: auto; min-width: 0; } }
+
+/* ---------- approvals ---------- */
+.approval { border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; margin-top: 10px; animation: rise .2s var(--ease); }
+.approval.approved, .approval.consumed { border-left-color: var(--good); }
+.approval.denied, .approval.expired { border-left-color: var(--bad); }
+.approval-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.approval-top .title { font-weight: 650; }
+.approval-top .when { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.approval-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+@media (max-width: 720px) { .approval-grid { grid-template-columns: 1fr; } }
+.reasons { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.meter { height: 7px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin: 4px 0; }
+.meter > i { display: block; height: 100%; border-radius: 99px; transition: width .4s var(--ease); }
+.factors { font-size: 11.5px; color: var(--muted); margin: 4px 0 0; padding-left: 16px; }
+.decide { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.decide input { flex: 1; min-width: 180px; }
+.list-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; margin-top: 8px; font-size: 13px; background: var(--surface); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="dot"></span>Capability Marketplace</div>
+    <div class="conn">
+      <span id="status" class="badge bad">not connected</span>
+      <input id="tenant-id" value="acme" aria-label="tenant id" title="tenant">
+      <input id="user-id" value="ui-user" aria-label="user id" title="user">
+      <button id="connect-btn" class="btn btn-primary btn-sm">Connect</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-panel="builder">Agent Builder</button>
+    <button class="tab" data-panel="approvals">Approvals <span id="approvals-count" class="badge" hidden>0</span></button>
+    <button class="tab" data-panel="specs">Saved Specs</button>
+    <button class="tab" data-panel="capabilities">Capabilities</button>
+    <button class="tab" data-panel="kb">Knowledge</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ======================= Agent Builder ======================= -->
+  <section id="builder" class="panel active">
+    <div class="builder-grid">
+      <div>
+        <div class="card">
+          <div class="card-head"><span class="step-num">1</span><h2>Discover tools</h2></div>
+          <p class="sub">Search what you can use, or the whole public marketplace. Add any usable tool as a step.</p>
+          <div class="row">
+            <div class="field"><input id="disc-q" placeholder="Search tools, agents, APIs — e.g. invoice, weather, sentiment" aria-label="search"></div>
+            <div class="field w-auto"><select id="disc-kind" aria-label="kind">
+              <option value="">All kinds</option><option value="mcp">MCP</option><option value="agent_card">A2A agent</option><option value="openapi">OpenAPI</option>
+            </select></div>
+          </div>
+          <div class="row" style="margin-top:8px; align-items:center">
+            <div class="seg" id="disc-scope"><button data-v="usable" class="on">Usable by me</button><button data-v="marketplace">Public marketplace</button></div>
+            <span id="disc-summary" class="hint" style="margin-left:auto"></span>
+          </div>
+          <div id="disc-results" class="results"></div>
+          <details style="margin-top:12px">
+            <summary>Register the test worker's 42 MCP + A2A capabilities</summary>
+            <div class="row" style="margin-top:8px">
+              <div class="field"><span class="label">Worker URL</span><input id="worker-url" value="http://127.0.0.1:9100"></div>
+              <div class="field w-s"><span class="label">Visibility</span><select id="worker-vis"><option value="marketplace">public</option><option value="org">org</option><option value="private">private</option></select></div>
+              <button id="worker-btn" class="btn btn-secondary">Register all</button>
+            </div>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Access requests</h2><div class="actions"><button id="grants-refresh" class="btn btn-ghost btn-sm">Refresh</button></div></div>
+          <div class="two-col">
+            <div><span class="label">For your capabilities</span><div id="grants-in"></div></div>
+            <div><span class="label">You requested</span><div id="grants-out"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sticky">
+        <div class="card">
+          <div class="card-head"><span class="step-num">2</span><h2>Plan</h2>
+            <div class="actions"><button id="plan-clear" class="btn btn-ghost btn-sm">Clear</button></div></div>
+          <div class="row">
+            <div class="field"><input id="intent" placeholder="Or describe it and let the planner draft steps…" aria-label="describe the agent"></div>
+            <button id="plan-draft" class="btn btn-secondary">Draft</button>
+          </div>
+          <div class="field" style="margin-top:10px"><span class="label">Goal</span><input id="plan-goal" placeholder="What this agent accomplishes, in one sentence"></div>
+          <div id="plan-steps"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="step-num">3</span><h2>Runtime, policy &amp; approvals</h2></div>
+      <p class="sub">How the compiled agent runs, what wraps every model and tool call, and when a person has to approve a tool call before it happens.</p>
+      <div class="seg subtabs" id="rt-tabs">
+        <button data-v="pattern" class="on">Execution pattern</button>
+        <button data-v="policy">Tool policy &amp; approvals</button>
+        <button data-v="callbacks">Callbacks</button>
+        <button data-v="notes">Instruction notes</button>
+      </div>
+
+      <div class="subpanel active" data-sub="pattern">
+        <div class="row">
+          <div class="field"><span class="label">Pattern</span><select id="rt-pattern"></select></div>
+          <div class="field w-s" id="rt-iter-wrap" hidden><span class="label">Max loop iterations</span><input id="rt-iter" type="number" min="1" max="50" value="3"></div>
+          <div class="field w-s"><span class="label">Max model calls / run</span><input id="rt-maxcalls" type="number" min="1" value="25"></div>
+        </div>
+        <p class="hint" id="rt-pattern-desc"></p>
+      </div>
+
+      <div class="subpanel" data-sub="policy" id="policy-editor"></div>
+
+      <div class="subpanel" data-sub="callbacks">
+        <div class="cb-grid" id="cb-presets"></div>
+        <details style="margin-top:10px"><summary>Additional callbacks (JSON)</summary>
+          <textarea id="cb-extra" rows="2" style="margin-top:6px" placeholder='[{"hook":"after_model","kind":"redact_patterns","params":{"patterns":{"ACME-\\d+":"[account]"}}}]'></textarea>
+          <p class="hint" id="cb-catalog"></p>
+        </details>
+      </div>
+
+      <div class="subpanel" data-sub="notes">
+        <textarea id="author-notes" rows="3" placeholder="Tone, edge cases, what to do if a step is blocked… woven into the compiled agent's instruction."></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Approvals ======================= -->
+  <section id="approvals" class="panel">
+    <div class="card">
+      <div class="card-head"><h2>Approvals inbox</h2>
+        <div class="actions">
+          <div class="seg" id="appr-filter"><button data-v="pending" class="on">Pending</button><button data-v="">All</button></div>
+          <button id="appr-refresh" class="btn btn-ghost btn-sm">Refresh</button>
+        </div></div>
+      <p class="sub">Tool calls paused by a spec's tool policy. Approving lets that exact call — those arguments — run once. Decisions here count for every channel, including inbox-only specs.</p>
+      <div id="appr-list"></div>
+    </div>
+  </section>
+
+  <!-- ======================= Saved specs ======================= -->
+  <section id="specs" class="panel">
+    <div class="card">
+      <div class="card-head"><h2>Saved agent specs</h2><div class="actions"><button id="specs-refresh" class="btn btn-ghost btn-sm">Refresh</button></div></div>
+      <div id="specs-list"></div>
+    </div>
+  </section>
+
+  <!-- ======================= Capabilities ======================= -->
+  <section id="capabilities" class="panel">
+    <div class="card">
+      <div class="card-head"><h2>Register a capability</h2></div>
+      <p class="sub">An MCP server, an OpenAPI spec or a remote agent's A2A card — normalized into one registry entry.</p>
+      <div class="seg" id="reg-kind"><button data-v="mcp" class="on">MCP server</button><button data-v="openapi">OpenAPI spec</button><button data-v="agent_card">A2A agent card</button></div>
+      <div id="reg-form" style="margin-top:12px"></div>
+      <div class="row" style="margin-top:12px">
+        <div class="field w-s"><span class="label">Visibility</span><select id="reg-visibility"><option value="marketplace">marketplace</option><option value="org">org</option><option value="private">private</option></select></div>
+        <button id="reg-btn" class="btn btn-primary">Register</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Knowledge ======================= -->
+  <section id="kb" class="panel">
+    <div class="card">
+      <div class="card-head"><h2>Add a document</h2></div>
+      <div class="row">
+        <div class="field"><span class="label">Title</span><input id="kb-title" placeholder="Refund policy"></div>
+        <div class="field"><span class="label">Tags</span><input id="kb-tags" placeholder="billing, policy"></div>
+      </div>
+      <div class="field" style="margin-top:10px"><span class="label">Content</span><textarea id="kb-content" rows="5"></textarea></div>
+      <div style="margin-top:10px"><button id="kb-add" class="btn btn-primary">Add</button></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Search</h2></div>
+      <input id="kb-q" placeholder="Search documents…" aria-label="search documents">
+      <div id="kb-list"></div>
+    </div>
+  </section>
+</main>
+
+<div class="actionbar" id="actionbar">
+  <div class="actionbar-inner">
+    <div class="summary" id="ab-summary"></div>
+    <div class="end">
+      <input id="spec-name" placeholder="Agent spec name" aria-label="agent spec name">
+      <button id="approve-btn" class="btn btn-primary">Approve &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Foundations: safe templating, DOM helpers, API, toasts, busy buttons.
+   Every component renders through html``: interpolated values are escaped
+   unless explicitly marked raw() -- discovery shows text written by other
+   tenants, so escaping is by construction, not by remembering.
+   ========================================================================= */
+class Raw { constructor(s) { this.s = s; } toString() { return this.s; } }
+const raw = s => new Raw(String(s));
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const fmt = v => v instanceof Raw ? v.s : Array.isArray(v) ? v.map(fmt).join("") : (v === false || v == null) ? "" : esc(v);
+function html(strings, ...values) { let out = strings[0]; values.forEach((v, i) => { out += fmt(v) + strings[i + 1]; }); return raw(out); }
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const mount = (el, view) => { (typeof el === "string" ? $(el) : el).innerHTML = String(view); };
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const ago = iso => { if (!iso) return ""; const s = Math.max(0, (Date.now() - new Date(iso)) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`; };
+
+const session = { token: null, tenant: null, user: null };
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (session.token) headers.Authorization = `Bearer ${session.token}`;
+  const resp = await fetch(path, { ...opts, headers, body: opts.body && typeof opts.body !== "string" ? JSON.stringify(opts.body) : opts.body });
+  let body = null; try { body = await resp.json(); } catch (_) { /* empty */ }
+  if (!resp.ok) throw new Error(body && body.detail !== undefined ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : `${resp.status} ${resp.statusText}`);
+  return body;
+}
+
+function notify(message, kind = "good", ms) {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.innerHTML = String(html`<div>${message}</div><button class="x" aria-label="dismiss">×</button>`);
+  const close = () => { el.classList.add("leaving"); setTimeout(() => el.remove(), 200); };
+  el.querySelector(".x").onclick = close;
+  $("#toasts").appendChild(el);
+  setTimeout(close, ms ?? (kind === "bad" ? 9000 : 4500));
+}
+async function busy(btn, fn) {
+  if (btn.getAttribute("aria-busy") === "true") return;
+  btn.setAttribute("aria-busy", "true"); btn.disabled = true;
+  try { return await fn(); } catch (e) { notify(e.message, "bad"); } finally { btn.removeAttribute("aria-busy"); btn.disabled = false; }
+}
+function needConnection() { if (!session.token) { notify("Connect first (top right).", "warn"); return true; } return false; }
+function seg(container, onChange) {
+  container.addEventListener("click", e => {
+    const b = e.target.closest("button[data-v]"); if (!b) return;
+    $$("button", container).forEach(x => x.classList.toggle("on", x === b)); onChange(b.dataset.v);
+  });
+}
+const value = (container) => ($("button.on", container) || {}).dataset?.v;
+const KIND = { mcp: "MCP", agent_card: "A2A agent", openapi: "OpenAPI" };
+const emptyState = (title, hint) => html`<div class="empty"><b>${title}</b>${hint ? html`<div class="hint">${hint}</div>` : ""}</div>`;
+const skeletons = n => raw(Array.from({ length: n }, () => '<div class="skeleton"></div>').join(""));
+
+function schemaParams(schema) {
+  const props = (schema && schema.properties) || {}, req = new Set((schema && schema.required) || []);
+  return Object.entries(props).map(([name, s]) => {
+    let type = s.type || (s.anyOf ? s.anyOf.map(x => x.type).filter(Boolean).join("|") : "any");
+    if (type === "array" && s.items && s.items.type) type = `${s.items.type}[]`;
+    return { name, type, required: req.has(name) };
+  });
+}
+const paramsText = ps => ps.map(p => html`<b>${p.name}</b>${p.required ? "*" : ""}: ${p.type}`).reduce((a, b, i) => i ? html`${a}, ${b}` : b, "");
+
+/* =========================================================================
+   Shared state
+   ========================================================================= */
+const state = {
+  caps: new Map(), granted: new Set(), outgoing: new Map(),
+  plan: { plan_id: null, goal: "", steps: [] },
+  runtimeOptions: null,
+  policy: { require_approval_before: [], confidence_on: false, confidence_threshold: 0.6, confidence_tools: ["*"],
+            confidence_method: "combined", rules: [], default_effect: "allow", approval_channel: "chat", ttl_hours: 24 },
+};
+
+/* =========================================================================
+   Component: Discover
+   ========================================================================= */
+const Discover = {
+  scope: "usable",
+  init() {
+    const q = $("#disc-q");
+    q.addEventListener("input", debounce(() => this.search(), 300));
+    q.addEventListener("keydown", e => { if (e.key === "Enter") this.search(); });
+    $("#disc-kind").addEventListener("change", () => this.search());
+    seg($("#disc-scope"), v => { this.scope = v; this.search(); });
+    $("#disc-results").addEventListener("click", e => this.onClick(e));
+    $("#worker-btn").addEventListener("click", e => !needConnection() && busy(e.currentTarget, () => this.registerWorker()));
+    mount("#disc-results", emptyState("Connect to start", "Then search, or browse everything you can use."));
+  },
+  status(c) {
+    if (c.tenant_id === session.tenant) return { usable: true, label: "yours", cls: "good" };
+    if (state.granted.has(c.id)) return { usable: true, label: "granted", cls: "good" };
+    const r = state.outgoing.get(c.id);
+    if (r === "pending") return { usable: false, label: "requested", cls: "warn" };
+    if (r === "denied") return { usable: false, label: "denied", cls: "bad" };
+    return { usable: false, label: "needs access", cls: "info" };
+  },
+  async search() {
+    if (!session.token) return;
+    const q = $("#disc-q").value.trim(), kind = $("#disc-kind").value;
+    mount("#disc-results", skeletons(3));
+    try {
+      let res;
+      if (this.scope === "marketplace") res = await api(`/marketplace/discover?limit=500&q=${encodeURIComponent(q)}`);
+      else if (q) res = await api(`/capabilities/search?limit=500&q=${encodeURIComponent(q)}${kind ? "&kind=" + kind : ""}`);
+      else res = (await api("/capabilities")).map(c => ({ capability: c }));
+      let items = res.map(r => r.capability || r);
+      if (kind) items = items.filter(c => c.kind === kind);
+      items.forEach(c => state.caps.set(c.id, c));
+      const tools = items.reduce((n, c) => n + (c.tools || []).length, 0);
+      $("#disc-summary").textContent = `${items.length} capabilit${items.length === 1 ? "y" : "ies"} · ${tools} tools`;
+      this.render(items, q);
+    } catch (e) { mount("#disc-results", emptyState("Search failed", e.message)); }
+  },
+  render(items, q) {
+    if (!items.length) {
+      mount("#disc-results", this.scope === "usable"
+        ? emptyState("Nothing usable matches", "Try the public marketplace, or register the test worker below.")
+        : emptyState("Nothing in the marketplace matches", "Register the test worker below to publish 42 capabilities."));
+      return;
+    }
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    mount("#disc-results", items.map(c => {
+      const st = this.status(c);
+      const tools = (c.tools || []).map(t => ({ t, match: terms.length > 0 && terms.some(x => `${t.name} ${t.description || ""}`.toLowerCase().includes(x)) }))
+        .sort((a, b) => b.match - a.match);
+      return html`<div class="cap">
+        <div class="cap-head">
+          <span class="name">${c.name}</span><span class="badge">${KIND[c.kind] || c.kind}</span>
+          <span class="badge ${st.cls}">${st.label}</span>
+          <span class="owner">${c.tenant_id} · ${c.visibility}</span>
+          <span class="end">${!st.usable && st.label !== "requested" ? html`<button class="btn btn-secondary btn-sm" data-request="${c.id}">Request access</button>` : ""}</span>
+        </div>
+        ${c.description ? html`<div class="cap-desc">${c.description}</div>` : ""}
+        <div>${tools.length ? tools.map(({ t, match }) => {
+          const ps = schemaParams(t.input_schema);
+          return html`<div class="tool${match ? " match" : ""}">
+            <div class="body"><div class="tname">${t.name}</div>${t.description ? html`<div>${t.description}</div>` : ""}
+              <div class="params">${c.kind === "agent_card" ? "text in → text out" : ps.length ? html`args: ${paramsText(ps)}` : "no arguments"}</div></div>
+            <button class="btn btn-sm ${st.usable ? "btn-primary" : "btn-secondary"}" data-add="${c.id}" data-tool="${t.name}" ${st.usable ? "" : raw('disabled title="Request access first"')}>+ Add</button>
+          </div>`; }) : html`<div class="tool"><span class="hint">No tools introspected.</span></div>`}</div>
+      </div>`;
+    }));
+  },
+  async onClick(e) {
+    const add = e.target.closest("[data-add]");
+    if (add && !add.disabled) { Plan.addTool(add.dataset.add, add.dataset.tool); return; }
+    const req = e.target.closest("[data-request]");
+    if (req) await busy(req, async () => {
+      const res = await api("/marketplace/grants", { method: "POST", body: { capability_id: req.dataset.request } });
+      notify(res.status === "approved" ? "You already have access." : "Access requested — the owner approves it under Access requests.");
+      await Grants.refresh(); this.search();
+    });
+  },
+  async registerWorker() {
+    const res = await api("/marketplace/register-worker", { method: "POST", body: { base_url: $("#worker-url").value.trim(), visibility: $("#worker-vis").value } });
+    notify(`Registered ${res.registered} capabilities (${res.mcp_servers} MCP, ${res.a2a_agents} A2A, ${res.tools} tools) as ${res.visibility}.`);
+    this.search();
+  },
+};
+
+/* =========================================================================
+   Component: Grants (access requests)
+   ========================================================================= */
+const Grants = {
+  init() {
+    $("#grants-refresh").addEventListener("click", e => busy(e.currentTarget, async () => { await this.refresh(); Discover.search(); }));
+    $("#grants-in").addEventListener("click", async e => {
+      const b = e.target.closest("[data-decide]"); if (!b) return;
+      await busy(b, async () => {
+        const r = await api(`/marketplace/grants/${encodeURIComponent(b.dataset.decide)}/decide`, { method: "POST", body: { approve: b.dataset.approve === "1" } });
+        notify(`Access ${r.status}.`); await this.refresh();
+      });
+    });
+    this.renderEmpty();
+  },
+  renderEmpty() { mount("#grants-in", emptyState("Nothing yet")); mount("#grants-out", emptyState("Nothing yet")); },
+  async refresh() {
+    if (!session.token) return;
+    const [mine, reqs] = await Promise.all([api("/marketplace/grants"), api("/marketplace/grants/requests")]);
+    state.granted = new Set(mine.granted_capability_ids || []);
+    state.outgoing = new Map(); (reqs.outgoing || []).forEach(g => { if (!state.outgoing.has(g.capability_id)) state.outgoing.set(g.capability_id, g.status); });
+    const badge = s => html`<span class="badge ${s === "approved" ? "good" : s === "pending" ? "warn" : "bad"}">${s}</span>`;
+    mount("#grants-in", (reqs.incoming || []).length ? reqs.incoming.map(g => html`<div class="list-item">
+      <div class="mono">${g.capability_id}</div><div class="hint">from <b>${g.grantee_tenant_id}</b> · ${ago(g.requested_at)} ${badge(g.status)}</div>
+      ${g.status === "pending" ? html`<div class="decide"><button class="btn btn-good btn-sm" data-decide="${g.grant_id}" data-approve="1">Approve</button><button class="btn btn-danger btn-sm" data-decide="${g.grant_id}" data-approve="0">Deny</button></div>` : ""}
+    </div>`) : emptyState("No requests for your capabilities"));
+    mount("#grants-out", (reqs.outgoing || []).length ? reqs.outgoing.map(g => html`<div class="list-item">
+      <div class="mono">${g.capability_id}</div><div class="hint">owner <b>${g.grantor_tenant_id}</b> · ${ago(g.requested_at)} ${badge(g.status)}</div></div>`)
+      : emptyState("You haven't requested anything"));
+  },
+};
+
+/* =========================================================================
+   Component: Plan editor
+   ========================================================================= */
+const Plan = {
+  init() {
+    $("#plan-goal").addEventListener("input", e => { state.plan.goal = e.target.value; ActionBar.render(); });
+    $("#plan-clear").addEventListener("click", () => { state.plan = { plan_id: null, goal: "", steps: [] }; this.render(); });
+    $("#plan-draft").addEventListener("click", e => !needConnection() && busy(e.currentTarget, () => this.draft()));
+    $("#intent").addEventListener("keydown", e => { if (e.key === "Enter") $("#plan-draft").click(); });
+    const box = $("#plan-steps");
+    box.addEventListener("input", e => this.onInput(e));
+    box.addEventListener("change", e => this.onChange(e));
+    box.addEventListener("click", e => this.onClick(e));
+    this.render();
+  },
+  argSkeleton(schema) {
+    const out = {};
+    for (const p of schemaParams(schema)) {
+      if (!p.required) continue;
+      const t = p.type.split("|")[0];
+      out[p.name] = t === "string" ? "" : (t === "number" || t === "integer") ? 0 : t === "boolean" ? false : (t.endsWith("[]") || t === "array") ? [] : t === "object" ? {} : null;
+    }
+    return out;
+  },
+  uniqueId(base) {
+    const clean = (base || "step").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "step";
+    const ids = new Set(state.plan.steps.map(s => s.step_id));
+    if (!ids.has(clean)) return clean; let n = 2; while (ids.has(`${clean}_${n}`)) n++; return `${clean}_${n}`;
+  },
+  addTool(capId, toolName) {
+    const c = state.caps.get(capId); if (!c) return;
+    const tool = (c.tools || []).find(t => t.name === toolName) || {};
+    const prev = state.plan.steps[state.plan.steps.length - 1];
+    if (!state.plan.plan_id) state.plan.plan_id = "plan_ui_" + Math.random().toString(36).slice(2, 10);
+    state.plan.steps.push({
+      step_id: this.uniqueId(toolName), kind: "tool_call", capability_id: capId, tool_name: toolName,
+      arguments: c.kind === "agent_card" ? {} : this.argSkeleton(tool.input_schema),
+      instruction: c.kind === "agent_card" ? "" : `Call ${toolName} on ${c.name}`,
+      depends_on: prev ? [prev.step_id] : [], required_scopes: c.required_scopes || [], guardrail_policy_id: "default",
+    });
+    this.render();
+    notify(`Added ${c.name} → ${toolName}.`);
+  },
+  addApprovalStep() {
+    const prev = state.plan.steps[state.plan.steps.length - 1];
+    if (!state.plan.plan_id) state.plan.plan_id = "plan_ui_" + Math.random().toString(36).slice(2, 10);
+    state.plan.steps.push({ step_id: this.uniqueId("sign_off"), kind: "human_approval", capability_id: "", tool_name: null, arguments: {},
+      instruction: "A person signs off before continuing", depends_on: prev ? [prev.step_id] : [], required_scopes: [], guardrail_policy_id: "default" });
+    this.render();
+  },
+  async draft() {
+    const intent = $("#intent").value.trim(); if (!intent) { notify("Describe what the agent should do.", "warn"); return; }
+    const drafted = await api("/plans", { method: "POST", body: { intent } });
+    if (drafted.steps.some(s => s.capability_id && !state.caps.has(s.capability_id))) (await api("/capabilities")).forEach(c => state.caps.set(c.id, c));
+    state.plan = { plan_id: drafted.plan_id, goal: drafted.goal, steps: drafted.steps.map(s => ({ arguments: {}, tool_name: null, ...s })) };
+    this.render();
+    notify(drafted.steps.length ? `Drafted ${drafted.steps.length} step(s). Check each step's tool and arguments.` : "The planner found no usable capability — add tools from Discover.", drafted.steps.length ? "good" : "warn");
+  },
+  render() {
+    $("#plan-goal").value = state.plan.goal || "";
+    const steps = state.plan.steps;
+    const footer = html`<div class="row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-add-approval>+ Human sign-off step</button></div>`;
+    if (!steps.length) { mount("#plan-steps", html`<div style="margin-top:12px">${emptyState("No steps yet", "Add tools from Discover, or draft from a description.")}</div>${footer}`); Policy.render(); ActionBar.render(); return; }
+    mount("#plan-steps", html`${steps.map((s, i) => {
+      const c = state.caps.get(s.capability_id), approval = s.kind === "human_approval", a2a = c && c.kind === "agent_card";
+      const tool = c && (c.tools || []).find(t => t.name === (s.tool_name || (c.tools[0] || {}).name));
+      const ps = tool ? schemaParams(tool.input_schema) : [];
+      const flags = Policy.flagsFor(s);
+      return html`<div class="step">
+        <div class="step-top">
+          <span class="idx">#${i + 1}</span>
+          <input class="sid" data-f="step_id" data-i="${i}" value="${s.step_id}" aria-label="step id">
+          <span class="where">${approval ? "Human sign-off" : html`${c ? c.name : s.capability_id} <span class="badge">${c ? (KIND[c.kind] || c.kind) : "unknown"}</span>`}</span>
+          ${!approval && c && c.tools && c.tools.length > 1 ? html`<select data-f="tool_name" data-i="${i}" aria-label="tool">${c.tools.map(t => html`<option ${t.name === (s.tool_name || c.tools[0].name) ? "selected" : ""}>${t.name}</option>`)}</select>` : !approval ? html`<span class="badge mono">${s.tool_name || (tool || {}).name || ""}</span>` : ""}
+          <span class="flags">${flags}</span>
+          <span class="ctl"><button class="btn btn-ghost btn-sm" data-move="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""} aria-label="move up">↑</button>
+          <button class="btn btn-ghost btn-sm" data-move="${i}" data-dir="1" ${i === steps.length - 1 ? "disabled" : ""} aria-label="move down">↓</button>
+          <button class="btn btn-ghost btn-sm" data-remove="${i}" aria-label="remove">✕</button></span>
+        </div>
+        <div class="step-body">
+          <div class="field"><span class="label">${a2a ? "Message to the agent" : approval ? "What the person is signing off" : "Instruction"}</span>
+            <textarea data-f="instruction" data-i="${i}" rows="2">${s.instruction}</textarea></div>
+          <div class="field"><span class="label">Arguments (JSON)</span>
+            <textarea data-f="arguments" data-i="${i}" rows="2" ${a2a || approval ? "disabled" : ""}>${a2a || approval ? "{}" : JSON.stringify(s.arguments || {}, null, 1)}</textarea>
+            <span class="hint">${a2a ? "A2A skills take the message above." : approval ? "No tool runs." : ps.length ? html`Expects ${paramsText(ps)} — checked against the tool's schema on approval.` : "Empty = called with {\"instruction\": …}."}</span></div>
+        </div>
+        <div class="step-foot"><span class="label">Waits for</span>${i === 0 ? html`<span class="hint">—</span>` : steps.slice(0, i).map(p => html`<label><input type="checkbox" data-dep="${i}" value="${p.step_id}" ${(s.depends_on || []).includes(p.step_id) ? "checked" : ""}>${p.step_id}</label>`)}</div>
+      </div>`;
+    })}${footer}`);
+    Policy.render(); ActionBar.render();
+  },
+  onInput(e) {
+    const f = e.target.dataset.f, i = Number(e.target.dataset.i); if (f === undefined || Number.isNaN(i)) return;
+    const s = state.plan.steps[i];
+    if (f === "arguments") {
+      try { s.arguments = e.target.value.trim() ? JSON.parse(e.target.value) : {}; e.target.classList.remove("invalid"); delete s._argsError; }
+      catch (err) { e.target.classList.add("invalid"); s._argsError = err.message; }
+    } else if (f === "step_id") {
+      const old = s.step_id; s.step_id = e.target.value.trim();
+      state.plan.steps.forEach(o => { o.depends_on = (o.depends_on || []).map(d => d === old ? s.step_id : d); });
+      state.policy.require_approval_before = state.policy.require_approval_before.map(x => x === old ? s.step_id : x);
+    } else s[f] = e.target.value;
+  },
+  onChange(e) {
+    if (e.target.dataset.f === "tool_name") {
+      const s = state.plan.steps[Number(e.target.dataset.i)], c = state.caps.get(s.capability_id);
+      s.tool_name = e.target.value; const t = c && c.tools.find(x => x.name === s.tool_name);
+      if (c && c.kind !== "agent_card") s.arguments = this.argSkeleton(t && t.input_schema);
+      this.render();
+    } else if (e.target.dataset.dep !== undefined) {
+      const s = state.plan.steps[Number(e.target.dataset.dep)], set = new Set(s.depends_on || []);
+      e.target.checked ? set.add(e.target.value) : set.delete(e.target.value); s.depends_on = [...set];
+    } else if (e.target.dataset.f === "step_id") this.render();
+  },
+  onClick(e) {
+    if (e.target.closest("[data-add-approval]")) { this.addApprovalStep(); return; }
+    const rm = e.target.closest("[data-remove]");
+    if (rm) {
+      const [gone] = state.plan.steps.splice(Number(rm.dataset.remove), 1);
+      state.plan.steps.forEach(o => { o.depends_on = (o.depends_on || []).filter(d => d !== gone.step_id); });
+      state.policy.require_approval_before = state.policy.require_approval_before.filter(x => x !== gone.step_id);
+      this.render(); return;
+    }
+    const mv = e.target.closest("[data-move]");
+    if (mv) {
+      const i = Number(mv.dataset.move), j = i + Number(mv.dataset.dir), st = state.plan.steps;
+      [st[i], st[j]] = [st[j], st[i]];
+      st.forEach((s, k) => { const above = new Set(st.slice(0, k).map(x => x.step_id)); s.depends_on = (s.depends_on || []).filter(d => above.has(d)); });
+      this.render();
+    }
+  },
+};
+
+/* =========================================================================
+   Component: Tool policy & approvals editor
+   ========================================================================= */
+const Policy = {
+  FACT_HINTS: { confidence: "0-1", attempt: "prior runs of this step", failed_steps: "count", calls_in_run: "count", hour_utc: "0-23", weekday: "monday…sunday" },
+  init() {
+    const el = $("#policy-editor");
+    el.addEventListener("click", e => this.onClick(e));
+    el.addEventListener("input", e => this.onInput(e));
+    el.addEventListener("change", e => this.onInput(e));
+    this.render();
+  },
+  toolSteps() { return state.plan.steps.filter(s => s.kind !== "human_approval"); },
+  flagsFor(s) {
+    if (s.kind === "human_approval") return html`<span class="badge warn">sign-off</span>`;
+    const p = state.policy, out = [];
+    if (p.require_approval_before.includes("*") || p.require_approval_before.includes(s.step_id)) out.push(html`<span class="badge warn">approval</span>`);
+    if (p.confidence_on && (p.confidence_tools.includes("*") || p.confidence_tools.includes(s.step_id))) out.push(html`<span class="badge info">conf ≥ ${p.confidence_threshold}</span>`);
+    const rules = p.rules.filter(r => r.tools.includes("*") || r.tools.includes(s.step_id));
+    if (rules.length) out.push(html`<span class="badge">${rules.length} rule${rules.length > 1 ? "s" : ""}</span>`);
+    return out;
+  },
+  chips(selected, attr) {
+    const steps = this.toolSteps();
+    const all = selected.includes("*");
+    return html`<div class="chips"><button class="chip ${all ? "on" : ""}" data-${raw(attr)}="*">all steps</button>${steps.map(s =>
+      html`<button class="chip ${!all && selected.includes(s.step_id) ? "on" : ""}" data-${raw(attr)}="${s.step_id}">${s.step_id}</button>`)}</div>`;
+  },
+  render() {
+    const p = state.policy, el = $("#policy-editor"); if (!el) return;
+    const facts = (state.runtimeOptions && state.runtimeOptions.tool_policy && state.runtimeOptions.tool_policy.facts) || ["confidence", "attempt", "args.<name>"];
+    const ops = ["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "contains", "matches", "exists"];
+    const noSteps = !this.toolSteps().length;
+    mount(el, html`
+      ${noSteps ? html`<p class="hint" style="margin-top:0">Add steps to the plan to target them here.</p>` : ""}
+      <div class="policy-block">
+        <h3>Require approval before</h3>
+        <p class="sub">A person approves before these steps' tools run — every time, that exact call.</p>
+        ${this.chips(p.require_approval_before, "rab")}
+      </div>
+      <div class="policy-block">
+        <h3><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-p="confidence_on" ${p.confidence_on ? "checked" : ""}> Approval when confidence is low</label></h3>
+        <p class="sub">Confidence is computed for each call. Below the threshold, the call pauses for approval and the approver sees the breakdown.</p>
+        <div ${p.confidence_on ? "" : raw('style="opacity:.5;pointer-events:none"')}>
+          <div class="row">
+            <div class="field"><span class="label">Threshold</span><div class="range-row"><input type="range" min="0" max="1" step="0.05" data-p="confidence_threshold" value="${p.confidence_threshold}"><output>${Number(p.confidence_threshold).toFixed(2)}</output></div></div>
+            <div class="field w-auto"><span class="label">Computed from</span>
+              <div class="seg" data-seg="confidence_method">${[["combined", "Model + signals"], ["signals", "Run signals"], ["self_reported", "Model estimate"]].map(([v, l]) => html`<button data-v="${v}" class="${p.confidence_method === v ? "on" : ""}">${l}</button>`)}</div></div>
+          </div>
+          <p class="hint">Model estimate: gated tools take a <code>confidence</code> argument the model fills in. Run signals: unmet dependencies, earlier failures, retries, guardrail blocks. Combined uses the lower.</p>
+          <span class="label">Applies to</span>${this.chips(p.confidence_tools, "ct")}
+        </div>
+      </div>
+      <div class="policy-block">
+        <h3>Rules <span class="hint" style="font-weight:400">most restrictive wins: deny › require approval › allow</span></h3>
+        ${p.rules.length ? "" : html`<p class="sub">Allow, deny or require approval for calls based on their arguments, confidence, attempts, failures so far, time, tenant or user.</p>`}
+        ${p.rules.map((r, ri) => html`<div class="rule">
+          <div class="rule-top">
+            <input class="rname" data-r="${ri}" data-rf="name" value="${r.name}" placeholder="rule name" aria-label="rule name">
+            <select data-r="${ri}" data-rf="effect" class="effect-${r.effect}" style="width:auto">${[["require_approval", "require approval"], ["deny", "deny"], ["allow", "allow"]].map(([v, l]) => html`<option value="${v}" ${r.effect === v ? "selected" : ""}>${l}</option>`)}</select>
+            <input data-r="${ri}" data-rf="reason" value="${r.reason}" placeholder="reason shown to approver / model" style="flex:1;min-width:160px" aria-label="reason">
+            <button class="btn btn-ghost btn-sm" data-rule-remove="${ri}" aria-label="remove rule">✕</button>
+          </div>
+          <div style="margin-top:6px">${this.chips(r.tools, `rt-${ri}`)}</div>
+          ${r.when.map((c, ci) => html`<div class="cond">
+            <input list="facts-list" data-r="${ri}" data-c="${ci}" data-cf="fact" value="${c.fact}" placeholder="fact, e.g. args.quantity" aria-label="fact">
+            <select data-r="${ri}" data-c="${ci}" data-cf="op" aria-label="operator">${ops.map(o => html`<option ${c.op === o ? "selected" : ""}>${o}</option>`)}</select>
+            <input data-r="${ri}" data-c="${ci}" data-cf="value" value="${c.value_text}" placeholder="${this.FACT_HINTS[c.fact] || "value (JSON or text)"}" aria-label="value">
+            <button class="btn btn-ghost btn-sm" data-cond-remove="${ri}:${ci}" aria-label="remove condition">✕</button>
+          </div>`)}
+          <button class="btn btn-ghost btn-sm" data-cond-add="${ri}" style="margin-top:6px">+ condition</button>
+        </div>`)}
+        <datalist id="facts-list">${facts.map(f => html`<option value="${f === "args.<name>" ? "args." : f}">`)}</datalist>
+        <div class="row" style="margin-top:8px"><button class="btn btn-secondary btn-sm" data-rule-add>+ Rule</button></div>
+      </div>
+      <div class="row">
+        <div class="field w-auto"><span class="label">When no rule matches</span>
+          <div class="seg" data-seg="default_effect"><button data-v="allow" class="${p.default_effect === "allow" ? "on" : ""}">Allow</button><button data-v="deny" class="${p.default_effect === "deny" ? "on" : ""}">Deny (allowlist)</button></div></div>
+        <div class="field w-auto"><span class="label">Who can approve</span>
+          <div class="seg" data-seg="approval_channel"><button data-v="chat" class="${p.approval_channel === "chat" ? "on" : ""}">Chat user or inbox</button><button data-v="inbox" class="${p.approval_channel === "inbox" ? "on" : ""}">Inbox only</button></div></div>
+        <div class="field w-s"><span class="label">Expires after (hours)</span><input type="number" min="1" data-p="ttl_hours" value="${p.ttl_hours}"></div>
+      </div>`);
+  },
+  toggle(list, v) {
+    if (v === "*") return list.includes("*") ? [] : ["*"];
+    const s = new Set(list.filter(x => x !== "*")); s.has(v) ? s.delete(v) : s.add(v); return [...s];
+  },
+  onClick(e) {
+    const p = state.policy, t = e.target;
+    const segBtn = t.closest("[data-seg] button[data-v]");
+    if (segBtn) { p[segBtn.closest("[data-seg]").dataset.seg] = segBtn.dataset.v; this.render(); Plan.render(); return; }
+    if (t.dataset.rab !== undefined) { p.require_approval_before = this.toggle(p.require_approval_before, t.dataset.rab); }
+    else if (t.dataset.ct !== undefined) { p.confidence_tools = this.toggle(p.confidence_tools, t.dataset.ct); if (!p.confidence_tools.length) p.confidence_tools = ["*"]; }
+    else if ([...t.attributes].some(a => a.name.startsWith("data-rt-"))) {
+      const a = [...t.attributes].find(a => a.name.startsWith("data-rt-")), ri = Number(a.name.slice(8));
+      p.rules[ri].tools = this.toggle(p.rules[ri].tools, a.value); if (!p.rules[ri].tools.length) p.rules[ri].tools = ["*"];
+    }
+    else if (t.closest("[data-rule-add]")) p.rules.push({ name: `rule_${p.rules.length + 1}`, tools: ["*"], when: [{ fact: "", op: "gt", value_text: "" }], effect: "require_approval", reason: "" });
+    else if (t.closest("[data-rule-remove]")) p.rules.splice(Number(t.closest("[data-rule-remove]").dataset.ruleRemove), 1);
+    else if (t.closest("[data-cond-add]")) p.rules[Number(t.closest("[data-cond-add]").dataset.condAdd)].when.push({ fact: "", op: "eq", value_text: "" });
+    else if (t.closest("[data-cond-remove]")) { const [ri, ci] = t.closest("[data-cond-remove]").dataset.condRemove.split(":").map(Number); p.rules[ri].when.splice(ci, 1); }
+    else return;
+    this.render(); Plan.render();
+  },
+  onInput(e) {
+    const p = state.policy, t = e.target;
+    if (t.dataset.p) {
+      if (t.dataset.p === "confidence_on") { p.confidence_on = t.checked; this.render(); Plan.render(); return; }
+      p[t.dataset.p] = t.type === "range" || t.type === "number" ? Number(t.value) : t.value;
+      if (t.type === "range") { t.nextElementSibling.textContent = Number(t.value).toFixed(2); if (e.type === "change") Plan.render(); }
+      return;
+    }
+    if (t.dataset.r !== undefined) {
+      const r = p.rules[Number(t.dataset.r)];
+      if (t.dataset.rf) { r[t.dataset.rf] = t.value; if (t.dataset.rf === "effect") t.className = `effect-${t.value}`; }
+      else if (t.dataset.cf) { const c = r.when[Number(t.dataset.c)]; if (t.dataset.cf === "value") c.value_text = t.value; else c[t.dataset.cf] = t.value; }
+    }
+  },
+  parseValue(text, op) {
+    const s = String(text ?? "").trim();
+    if (op === "exists") return s === "" ? true : s !== "false";
+    if (op === "in" || op === "not_in") { try { const v = JSON.parse(s); if (Array.isArray(v)) return v; } catch (_) { } return s.split(",").map(x => x.trim()).filter(Boolean).map(x => isNaN(Number(x)) ? x : Number(x)); }
+    if (op === "matches" || op === "contains") return s;
+    try { return JSON.parse(s); } catch (_) { return s; }
+  },
+  toConfig() {
+    const p = state.policy;
+    return {
+      require_approval_before: p.require_approval_before,
+      confidence_threshold: p.confidence_on ? Number(p.confidence_threshold) : null,
+      confidence_tools: p.confidence_tools, confidence_method: p.confidence_method,
+      rules: p.rules.map(r => ({ name: r.name.trim(), tools: r.tools, effect: r.effect, reason: r.reason,
+        when: r.when.filter(c => c.fact.trim()).map(c => ({ fact: c.fact.trim(), op: c.op, value: this.parseValue(c.value_text, c.op) })) })),
+      default_effect: p.default_effect, approval_channel: p.approval_channel,
+      approval_ttl_seconds: Math.max(60, Math.round(Number(p.ttl_hours || 24) * 3600)),
+    };
+  },
+  load(tp) {
+    tp = tp || {};
+    state.policy = {
+      require_approval_before: tp.require_approval_before || [], confidence_on: tp.confidence_threshold != null,
+      confidence_threshold: tp.confidence_threshold ?? 0.6, confidence_tools: tp.confidence_tools || ["*"], confidence_method: tp.confidence_method || "combined",
+      rules: (tp.rules || []).map(r => ({ ...r, when: (r.when || []).map(c => ({ fact: c.fact, op: c.op, value_text: typeof c.value === "string" ? c.value : JSON.stringify(c.value) })) })),
+      default_effect: tp.default_effect || "allow", approval_channel: tp.approval_channel || "chat", ttl_hours: Math.round((tp.approval_ttl_seconds || 86400) / 3600),
+    };
+    this.render();
+  },
+  summary() {
+    const p = state.policy, out = [];
+    if (p.require_approval_before.length) out.push(`approval before ${p.require_approval_before.includes("*") ? "all" : p.require_approval_before.length}`);
+    if (p.confidence_on) out.push(`confidence ≥ ${Number(p.confidence_threshold).toFixed(2)}`);
+    if (p.rules.length) out.push(`${p.rules.length} rule${p.rules.length > 1 ? "s" : ""}`);
+    if (p.default_effect === "deny") out.push("allowlist");
+    if (p.approval_channel === "inbox") out.push("inbox-only");
+    return out;
+  },
+};
+
+/* =========================================================================
+   Component: Runtime (pattern + callbacks)
+   ========================================================================= */
+const Runtime = {
+  PRESETS: [
+    { id: "validate_args", hook: "before_tool", kind: "validate_args_schema", label: "Validate tool arguments", desc: "Against each tool's JSON schema, before calling it.", on: true },
+    { id: "guard_in", hook: "before_model", kind: "guardrail_policy", label: "Input guardrail", desc: "Block prompt-injection phrases (default policy).", on: true },
+    { id: "block_kw", hook: "before_model", kind: "block_keywords", label: "Block keywords", desc: "Refuse requests containing these phrases.", input: { key: "keywords", type: "text", placeholder: "wire transfer, delete account", list: true } },
+    { id: "redact_tool", hook: "after_tool", kind: "redact_pii", label: "Redact PII in tool results", desc: "Emails, SSNs, card numbers — before the model sees them." },
+    { id: "redact_model", hook: "after_model", kind: "redact_pii", label: "Redact PII in answers", desc: "Same, over the model's own replies." },
+    { id: "truncate", hook: "after_tool", kind: "truncate_output", label: "Truncate tool output", desc: "Cap every string in a tool result.", input: { key: "max_chars", type: "number", placeholder: "2000", value: "2000" } },
+    { id: "log", hook: "before_agent", kind: "log_event", label: "Log agent start", desc: "A server log line per run." },
+  ],
+  init() {
+    seg($("#rt-tabs"), v => $$(".subpanel").forEach(p => p.classList.toggle("active", p.dataset.sub === v)));
+    $("#rt-pattern").addEventListener("change", () => { this.describe(); ActionBar.render(); });
+    this.renderPresets();
+    $("#cb-presets").addEventListener("change", e => { const o = e.target.closest(".opt"); if (o && e.target.type === "checkbox") o.classList.toggle("on", e.target.checked); ActionBar.render(); });
+  },
+  renderPresets() {
+    mount("#cb-presets", this.PRESETS.map(p => html`<div class="opt ${p.on ? "on" : ""}">
+      <label class="main"><input type="checkbox" id="cb-${p.id}" ${p.on ? "checked" : ""}><span>${p.label}<div class="meta">${p.hook} · ${p.kind}</div></span></label>
+      <div class="desc">${p.desc}</div>
+      ${p.input ? html`<input type="${p.input.type}" id="cbp-${p.id}" placeholder="${p.input.placeholder}" value="${p.input.value || ""}" aria-label="${p.label}">` : ""}
+    </div>`));
+  },
+  async loadOptions() {
+    state.runtimeOptions = await api("/agent-specs/runtime-options");
+    const sel = $("#rt-pattern"), cur = sel.value || "single";
+    mount(sel, Object.keys(state.runtimeOptions.patterns).map(p => html`<option value="${p}">${p.replace("_", " ")}</option>`));
+    sel.value = state.runtimeOptions.patterns[cur] ? cur : "single";
+    this.describe();
+    mount("#cb-catalog", html`Available: ${Object.entries(state.runtimeOptions.callbacks).map(([h, k]) => html`<code>${h}</code>: ${k.join(", ")} · `)}`);
+    Policy.render();
+  },
+  describe() {
+    const p = $("#rt-pattern").value;
+    $("#rt-pattern-desc").textContent = state.runtimeOptions ? state.runtimeOptions.patterns[p] || "" : "";
+    $("#rt-iter-wrap").hidden = p !== "loop";
+  },
+  callbacks() {
+    const out = [];
+    for (const p of this.PRESETS) {
+      if (!$(`#cb-${p.id}`).checked) continue;
+      const params = {};
+      if (p.input) {
+        const v = $(`#cbp-${p.id}`).value.trim(); if (!v) throw new Error(`“${p.label}” needs a value.`);
+        params[p.input.key] = p.input.list ? v.split(",").map(x => x.trim()).filter(Boolean) : p.input.type === "number" ? Number(v) : v;
+      }
+      out.push({ hook: p.hook, kind: p.kind, params });
+    }
+    const extra = $("#cb-extra").value.trim();
+    if (extra) { let v; try { v = JSON.parse(extra); } catch (e) { throw new Error("Additional callbacks isn't valid JSON."); } if (!Array.isArray(v)) throw new Error("Additional callbacks must be an array."); out.push(...v); }
+    return out;
+  },
+  config() {
+    const mc = $("#rt-maxcalls").value.trim();
+    return { pattern: $("#rt-pattern").value || "single", max_iterations: Number($("#rt-iter").value || 3),
+             max_llm_calls: mc ? Number(mc) : null, callbacks: this.callbacks(), tool_policy: Policy.toConfig() };
+  },
+  load(rt) {
+    rt = rt || {};
+    if (rt.pattern) { $("#rt-pattern").value = rt.pattern; this.describe(); }
+    $("#rt-iter").value = rt.max_iterations || 3; $("#rt-maxcalls").value = rt.max_llm_calls ?? "";
+    const rest = [];
+    this.PRESETS.forEach(p => { $(`#cb-${p.id}`).checked = false; $(`#cb-${p.id}`).closest(".opt").classList.remove("on"); });
+    (rt.callbacks || []).forEach(c => {
+      const p = this.PRESETS.find(x => x.hook === c.hook && x.kind === c.kind);
+      if (!p) { rest.push(c); return; }
+      $(`#cb-${p.id}`).checked = true; $(`#cb-${p.id}`).closest(".opt").classList.add("on");
+      if (p.input && c.params && c.params[p.input.key] !== undefined) { const v = c.params[p.input.key]; $(`#cbp-${p.id}`).value = Array.isArray(v) ? v.join(", ") : v; }
+    });
+    $("#cb-extra").value = rest.length ? JSON.stringify(rest) : "";
+    Policy.load(rt.tool_policy);
+  },
+};
+
+/* =========================================================================
+   Component: sticky action bar (summary + approve)
+   ========================================================================= */
+const ActionBar = {
+  init() { $("#approve-btn").addEventListener("click", e => !needConnection() && busy(e.currentTarget, () => this.approve())); },
+  render() {
+    const bar = $("#actionbar"), onBuilder = $("#builder").classList.contains("active");
+    bar.classList.toggle("show", onBuilder && state.plan.steps.length > 0);
+    document.body.classList.toggle("ab-open", bar.classList.contains("show"));
+    document.body.style.setProperty("--ab-h", bar.offsetHeight + "px");
+    let cbCount = 0; try { cbCount = Runtime.callbacks().length; } catch (_) { }
+    const pattern = $("#rt-pattern").value || "single";
+    mount("#ab-summary", html`<span class="badge solid">${state.plan.steps.length} step${state.plan.steps.length === 1 ? "" : "s"}</span>
+      <span class="badge info">${pattern.replace("_", " ")}</span><span class="badge">${cbCount} callback${cbCount === 1 ? "" : "s"}</span>
+      ${Policy.summary().map(s => html`<span class="badge warn">${s}</span>`)}`);
+  },
+  async approve() {
+    const name = $("#spec-name").value.trim();
+    if (!state.plan.steps.length) throw new Error("Add at least one step.");
+    if (!name) { $("#spec-name").classList.add("invalid"); $("#spec-name").focus(); throw new Error("Name the agent spec."); }
+    $("#spec-name").classList.remove("invalid");
+    if (!state.plan.goal.trim()) { $("#plan-goal").classList.add("invalid"); throw new Error("Write the goal in one sentence."); }
+    $("#plan-goal").classList.remove("invalid");
+    const bad = state.plan.steps.find(s => s._argsError); if (bad) throw new Error(`Step ${bad.step_id}: arguments aren't valid JSON.`);
+    const spec = await api("/agent-specs/approve", { method: "POST", body: {
+      name, author_notes: $("#author-notes").value.trim(), runtime: Runtime.config(),
+      plan: { plan_id: state.plan.plan_id || "plan_ui_" + Math.random().toString(36).slice(2, 10), goal: state.plan.goal.trim(),
+              steps: state.plan.steps.map(({ _argsError, ...s }) => s) } } });
+    notify(`Saved ${spec.name} v${spec.version} · ${spec.runtime.pattern}. In adk web, pick spec_test_agent (or ask the supervisor to pick it up).`);
+    Specs.refresh();
+  },
+};
+
+/* =========================================================================
+   Component: Approvals inbox
+   ========================================================================= */
+const Approvals = {
+  filter: "pending", timer: null,
+  init() {
+    seg($("#appr-filter"), v => { this.filter = v; this.refresh(); });
+    $("#appr-refresh").addEventListener("click", e => busy(e.currentTarget, () => this.refresh()));
+    $("#appr-list").addEventListener("click", e => this.onClick(e));
+    mount("#appr-list", emptyState("Connect to see approvals"));
+  },
+  start() { clearInterval(this.timer); this.timer = setInterval(() => this.refresh(true), 8000); this.refresh(); },
+  async refresh(quiet) {
+    if (!session.token) return;
+    const [pending, list] = await Promise.all([
+      api("/approvals?status=pending"),
+      this.filter === "pending" ? null : api("/approvals?status="),
+    ]);
+    const count = $("#approvals-count"); count.hidden = !pending.length; count.textContent = pending.length; count.className = `badge ${pending.length ? "warn" : ""}`;
+    const items = list || pending;
+    if (quiet && document.activeElement && document.activeElement.closest && document.activeElement.closest("#appr-list")) return; // don't clobber a note being typed
+    this.render(items);
+  },
+  render(items) {
+    if (!items.length) { mount("#appr-list", emptyState(this.filter === "pending" ? "Nothing waiting for approval" : "No approvals yet", "Tool calls paused by a spec's tool policy show up here.")); return; }
+    mount("#appr-list", items.map(a => {
+      const conf = a.confidence, color = conf == null ? "" : conf >= 0.75 ? "var(--good)" : conf >= 0.5 ? "var(--warn)" : "var(--bad)";
+      const st = { pending: "warn", approved: "good", consumed: "good", denied: "bad", expired: "bad" }[a.status] || "";
+      return html`<div class="approval ${a.status}">
+        <div class="approval-top">
+          <span class="title">${a.spec_name || a.spec_id} › ${a.step_id}</span>
+          <span class="badge mono">${a.tool_name}</span>
+          <span class="badge ${st}">${a.status === "consumed" ? "approved · ran" : a.status}</span>
+          ${a.channel === "inbox" ? html`<span class="badge info">inbox-only</span>` : ""}
+          <span class="when">${ago(a.requested_at)} · ${a.approval_id}</span>
+        </div>
+        <div class="approval-grid">
+          <div><span class="label">Why it paused</span><ul class="reasons">${a.reasons.map(r => html`<li>${r}</li>`)}</ul>
+            ${conf != null ? html`<div style="margin-top:8px"><span class="label">Confidence ${conf.toFixed(2)}</span>
+              <div class="meter"><i style="width:${raw(Math.round(conf * 100))}%;background:${raw(color)}"></i></div>
+              <ul class="factors">${a.confidence_factors.map(f => html`<li>${f}</li>`)}</ul></div>` : ""}
+          </div>
+          <div><span class="label">Call</span><pre class="json">${JSON.stringify(a.arguments, null, 2)}</pre>
+            <dl class="kv" style="margin-top:6px"><dt>capability</dt><dd class="mono">${a.capability_id || "—"}</dd><dt>requested by</dt><dd>${a.requested_by}</dd>
+            ${a.decided_by ? html`<dt>decided</dt><dd>${a.decided_by} via ${a.decided_via} ${ago(a.decided_at)}${a.note ? html` — “${a.note}”` : ""}</dd>` : ""}</dl></div>
+        </div>
+        ${a.status === "pending" ? html`<div class="decide"><input placeholder="Note (optional)" data-note="${a.approval_id}" aria-label="note">
+          <button class="btn btn-good btn-sm" data-approve="${a.approval_id}" data-v="1">Approve</button>
+          <button class="btn btn-danger btn-sm" data-approve="${a.approval_id}" data-v="0">Reject</button></div>` : ""}
+      </div>`;
+    }));
+  },
+  async onClick(e) {
+    const b = e.target.closest("[data-approve]"); if (!b) return;
+    await busy(b, async () => {
+      const note = ($(`[data-note="${CSS.escape(b.dataset.approve)}"]`) || {}).value || "";
+      const r = await api(`/approvals/${encodeURIComponent(b.dataset.approve)}/decide`, { method: "POST", body: { approve: b.dataset.v === "1", note } });
+      notify(r.status === "approved" ? "Approved — the step runs when the agent resumes or retries it." : "Rejected.", r.status === "approved" ? "good" : "warn");
+      await this.refresh();
+    });
+  },
+};
+
+/* =========================================================================
+   Component: Saved specs
+   ========================================================================= */
+const Specs = {
+  list: [],
+  init() { $("#specs-refresh").addEventListener("click", e => busy(e.currentTarget, () => this.refresh())); $("#specs-list").addEventListener("click", e => this.onClick(e)); mount("#specs-list", emptyState("Connect to see saved specs")); },
+  async refresh() {
+    if (!session.token) return;
+    this.list = await api("/agent-specs");
+    if (!this.list.length) { mount("#specs-list", emptyState("No approved agent specs yet", "Build one in the Agent Builder.")); return; }
+    mount("#specs-list", this.list.map((s, i) => {
+      const rt = s.runtime || {}, tp = rt.tool_policy || {};
+      const pol = [];
+      if ((tp.require_approval_before || []).length) pol.push(`approval before ${tp.require_approval_before.includes("*") ? "all" : tp.require_approval_before.join(", ")}`);
+      if (tp.confidence_threshold != null) pol.push(`confidence ≥ ${tp.confidence_threshold}`);
+      if ((tp.rules || []).length) pol.push(`${tp.rules.length} rule(s)`);
+      if (tp.approval_channel === "inbox") pol.push("inbox-only");
+      return html`<div class="list-item">
+        <div class="row" style="align-items:center"><b>${s.name}</b><span class="badge">v${s.version}</span><span class="badge info">${(rt.pattern || "single").replace("_", " ")}</span>
+          ${pol.map(p => html`<span class="badge warn">${p}</span>`)}
+          <button class="btn btn-secondary btn-sm" data-edit="${i}" style="margin-left:auto">Edit as new version</button></div>
+        <div class="hint">${s.spec_id} · ${s.approved_by} · ${ago(s.created_at)}</div>
+        <div style="margin-top:4px">${s.goal}</div>
+        <div class="chips" style="margin-top:6px">${(s.steps || []).map(st => { const snap = (s.capability_snapshots || {})[st.capability_id];
+          return html`<span class="badge mono">${st.step_id} → ${st.kind === "human_approval" ? "sign-off" : html`${snap ? snap.name : st.capability_id}${st.tool_name ? "." + st.tool_name : ""}`}</span>`; })}</div>
+        ${(rt.callbacks || []).length ? html`<div class="hint" style="margin-top:4px">callbacks: ${rt.callbacks.map(c => `${c.hook}:${c.kind}`).join(", ")}</div>` : ""}
+      </div>`;
+    }));
+  },
+  onClick(e) {
+    const b = e.target.closest("[data-edit]"); if (!b) return;
+    const s = this.list[Number(b.dataset.edit)];
+    Object.entries(s.capability_snapshots || {}).forEach(([id, c]) => { if (!state.caps.has(id)) state.caps.set(id, c); });
+    state.plan = { plan_id: s.source_plan_id, goal: s.goal, steps: JSON.parse(JSON.stringify(s.steps)) };
+    $("#spec-name").value = s.name;
+    Runtime.load(s.runtime); Plan.render();
+    Tabs.show("builder");
+    notify(`Loaded ${s.name} v${s.version}. Saving under the same name creates v${s.version + 1}.`);
+  },
+};
+
+/* =========================================================================
+   Components: Capabilities (register) & Knowledge
+   ========================================================================= */
+const Register = {
+  kind: "mcp",
+  FORMS: {
+    mcp: () => html`<div class="row"><div class="field"><span class="label">Name</span><input id="f-name" placeholder="video-gen"></div><div class="field"><span class="label">Description</span><input id="f-desc"></div></div>
+      <div class="row" style="margin-top:8px"><div class="field"><span class="label">SSE URL</span><input id="f-sse" placeholder="http://127.0.0.1:9100/mcp/math-tools/sse"></div><div class="field"><span class="label">…or stdio command</span><input id="f-stdio" placeholder="npx some-mcp-server"></div></div>`,
+    openapi: () => html`<div class="row"><div class="field"><span class="label">Name</span><input id="f-name"></div><div class="field"><span class="label">Base URL</span><input id="f-base" placeholder="https://api.example.com"></div></div>
+      <div class="field" style="margin-top:8px"><span class="label">OpenAPI spec (JSON)</span><textarea id="f-spec" rows="6"></textarea></div>`,
+    agent_card: () => html`<div class="field"><span class="label">Agent base URL</span><input id="f-card" placeholder="http://127.0.0.1:9100/a2a/faq-agent"></div><p class="hint">Fetches /.well-known/agent-card.json from that URL.</p>`,
+  },
+  init() {
+    seg($("#reg-kind"), v => { this.kind = v; mount("#reg-form", this.FORMS[v]()); });
+    mount("#reg-form", this.FORMS.mcp());
+    $("#reg-btn").addEventListener("click", e => !needConnection() && busy(e.currentTarget, () => this.submit()));
+  },
+  async submit() {
+    const vis = $("#reg-visibility").value; let cap;
+    if (this.kind === "mcp") { const stdio = $("#f-stdio").value.trim();
+      cap = await api("/capabilities/mcp", { method: "POST", body: { name: $("#f-name").value.trim(), description: $("#f-desc").value.trim(), sse_url: $("#f-sse").value.trim() || null, stdio_command: stdio ? stdio.split(/\s+/) : null, visibility: vis } }); }
+    else if (this.kind === "openapi") cap = await api("/capabilities/openapi", { method: "POST", body: { name: $("#f-name").value.trim(), base_url: $("#f-base").value.trim(), spec: JSON.parse($("#f-spec").value || "{}"), visibility: vis } });
+    else cap = await api("/capabilities/agent-card", { method: "POST", body: { agent_base_url: $("#f-card").value.trim(), visibility: vis } });
+    notify(`Registered ${cap.name} with ${(cap.tools || []).length} tool(s) as ${cap.visibility}.`);
+  },
+};
+const Knowledge = {
+  init() {
+    $("#kb-add").addEventListener("click", e => !needConnection() && busy(e.currentTarget, async () => {
+      const title = $("#kb-title").value.trim(), content = $("#kb-content").value.trim();
+      if (!title || !content) throw new Error("Title and content are required.");
+      await api("/knowledge/documents", { method: "POST", body: { title, content, tags: $("#kb-tags").value.split(",").map(t => t.trim()).filter(Boolean) } });
+      ["#kb-title", "#kb-content", "#kb-tags"].forEach(id => { $(id).value = ""; }); notify("Added."); this.search();
+    }));
+    $("#kb-q").addEventListener("input", debounce(() => this.search(), 300));
+    mount("#kb-list", emptyState("Connect to see documents"));
+  },
+  async search() {
+    if (!session.token) return;
+    const q = $("#kb-q").value.trim();
+    const docs = await api(q ? "/knowledge/search?q=" + encodeURIComponent(q) : "/knowledge/documents");
+    mount("#kb-list", docs.length ? docs.map(d => { const doc = d.document || d, c = doc.content || "";
+      return html`<div class="list-item"><b>${doc.title}</b> ${(doc.tags || []).map(t => html`<span class="badge">${t}</span>`)}<div class="hint" style="margin-top:4px">${c.slice(0, 180)}${c.length > 180 ? "…" : ""}</div></div>`; })
+      : emptyState("No documents"));
+  },
+};
+
+/* =========================================================================
+   Tabs & connect
+   ========================================================================= */
+const Tabs = {
+  init() { $("#tabs").addEventListener("click", e => { const t = e.target.closest(".tab"); if (t) this.show(t.dataset.panel); }); },
+  show(id) {
+    $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.panel === id));
+    $$(".panel").forEach(p => p.classList.toggle("active", p.id === id));
+    ActionBar.render();
+    if (id === "approvals") Approvals.refresh();
+    if (id === "specs") Specs.refresh();
+  },
+};
+$("#connect-btn").addEventListener("click", e => busy(e.currentTarget, async () => {
+  const tenant_id = $("#tenant-id").value.trim() || "acme", user_id = $("#user-id").value.trim() || "ui-user";
+  const st = $("#status");
+  try {
+    const r = await fetch("/auth/dev-token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenant_id, user_id, scopes: ["*"] }) });
+    if (!r.ok) throw new Error(r.statusText);
+    session.token = (await r.json()).access_token; session.tenant = tenant_id; session.user = user_id;
+    st.textContent = `${tenant_id} / ${user_id}`; st.className = "badge good";
+  } catch (err) { session.token = null; st.textContent = "connection failed"; st.className = "badge bad"; throw err; }
+  await Promise.all([Runtime.loadOptions(), Grants.refresh()]);
+  Discover.search(); Specs.refresh(); Knowledge.search(); Approvals.start();
+}));
+
+[Tabs, Discover, Grants, Plan, Policy, Runtime, ActionBar, Approvals, Specs, Register, Knowledge].forEach(c => c.init());
+</script>
+</body>
+</html>
