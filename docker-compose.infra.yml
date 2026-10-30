@@ -1,0 +1,41 @@
+# Infrastructure only: Postgres 16 + pgvector (for the app and for mem0) and
+# Redis 7. Nothing here builds an image -- it just pulls two public ones --
+# and the app itself runs on your machine with uvicorn:
+#
+#     ./scripts/dev.sh all          # starts this file, migrates, runs api + runner + relay
+#
+# Ports are bound to 127.0.0.1 only. If 5432 or 6379 is taken on your
+# machine, set PG_PORT / REDIS_PORT (dev.sh picks them up too).
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-owner_pw}
+      POSTGRES_DB: agentspec
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=256MB"]
+    ports:
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
+    volumes:
+      - agentspec_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agentspec"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - agentspec_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  agentspec_pgdata:
+  agentspec_redisdata:

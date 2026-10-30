@@ -132,12 +132,12 @@ async def approve_plan(
 
 @router.get("", response_model=list[AgentSpec])
 async def list_agent_specs(identity: IdentityContext = Depends(get_identity)) -> list[AgentSpec]:
-    return await specs_store.list_specs(identity.tenant_id)
+    return await specs_store.list_specs_cached(identity.tenant_id)
 
 
 @router.get("/{spec_id}", response_model=AgentSpec)
 async def get_agent_spec(spec_id: str, identity: IdentityContext = Depends(get_identity)) -> AgentSpec:
-    spec = await specs_store.get_spec(spec_id)
+    spec = await specs_store.get_spec_cached(spec_id, tenant_id=identity.tenant_id)
     if spec is None or spec.tenant_id != identity.tenant_id:
         raise HTTPException(status_code=404, detail="agent spec not found")
     return spec

@@ -10,18 +10,21 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-import httpx
-
 from app.registry.schemas import Capability, CapabilityKind, EndpointRef, ToolSchema, Visibility
 
 AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent-card.json"
 
 
 async def fetch_agent_card(base_url: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(base_url.rstrip("/") + AGENT_CARD_WELL_KNOWN_PATH)
-        resp.raise_for_status()
-        return resp.json()
+    from app.core import http as http_core
+
+    url = base_url.rstrip("/") + AGENT_CARD_WELL_KNOWN_PATH
+    await http_core.check_url(url)
+    resp = await http_core.client().get(url, timeout=10)
+    resp.raise_for_status()
+    if len(resp.content) > 1_000_000:
+        raise ValueError("agent card too large")
+    return resp.json()
 
 
 def capability_from_agent_card(
@@ -75,11 +78,12 @@ async def invoke_remote_skill(
             }
         },
     }
-    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
-        resp = await client.post(capability.endpoint_ref.agent_card_url, json=payload)
-        resp.raise_for_status()
-        body = resp.json()
-        return _extract_text(body)
+    from app.core import http as http_core
+
+    await http_core.check_url(capability.endpoint_ref.agent_card_url)
+    resp = await http_core.client().post(capability.endpoint_ref.agent_card_url, json=payload, headers=headers)
+    resp.raise_for_status()
+    return _extract_text(resp.json())
 
 
 def _extract_text(rpc_response: dict[str, Any]) -> str:

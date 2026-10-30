@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
+from app.core.cache import cache
 from app.marketplace.models import (
     AgentDefinitionRow,
     CapabilityGrantRow,
@@ -56,6 +58,11 @@ async def decide_grant(session: AsyncSession, grant_id: str, *, approve: bool) -
     grant.status = "approved" if approve else "denied"
     grant.decided_at = datetime.now(timezone.utc)
     await session.flush()
+    # The grantee's executable set just changed.
+    await cache.invalidate_on_commit(session, grant.grantee_tenant_id, "visible")
+    audit.record(session, tenant_id=grant.grantor_tenant_id, actor=grant.grantor_tenant_id,
+                 action="grant." + grant.status, resource_type="capability_grant", resource_id=grant.id,
+                 details={"capability_id": grant.capability_id, "grantee_tenant_id": grant.grantee_tenant_id})
     return grant
 
 

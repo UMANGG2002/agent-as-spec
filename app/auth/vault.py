@@ -1,19 +1,28 @@
-"""Per-tenant BYOK credential vault. Minimal build: a Postgres/SQLite table
-with application-level Fernet envelope encryption, exactly as the architecture
-doc's data-model note describes (swap the Fernet key for a KMS in production).
+"""Per-tenant BYOK credential vault with versioned envelope encryption.
 
-Nothing outside this module ever sees a decrypted secret except at the moment
-a tool wrapper needs it to make an outbound call.
+Secrets are encrypted with `MultiFernet` over a list of data keys
+(`VAULT_KEYS_JSON`, newest first): encryption always uses the newest key,
+decryption tries each, and `rotate()` re-encrypts a ciphertext under the
+newest key. Rotating = prepend a key, re-encrypt in the background, then
+drop the old one -- no downtime. In production the data keys come from a
+KMS (wrap/unwrap at boot) rather than an env var; the interface is the same.
+
+Locally a key is derived from the dev JWT secret so nothing needs setting.
+Nothing outside this module ever sees a decrypted secret except at the
+moment a tool wrapper needs it to make an outbound call; entries are
+tenant-scoped on every read.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet
 
 from app.config import settings
 
@@ -23,7 +32,26 @@ def _derive_fernet_key(material: str) -> bytes:
     return base64.urlsafe_b64encode(digest)
 
 
-_fernet = Fernet(_derive_fernet_key(settings.jwt_signing_key))
+@lru_cache(maxsize=1)
+def _cipher() -> MultiFernet:
+    if settings.vault_keys_json:
+        keys = [Fernet(k.encode() if isinstance(k, str) else k) for k in json.loads(settings.vault_keys_json)]
+    else:
+        keys = [Fernet(_derive_fernet_key(settings.jwt_signing_key))]
+    return MultiFernet(keys)
+
+
+def encrypt(secret: str) -> bytes:
+    return _cipher().encrypt(secret.encode("utf-8"))
+
+
+def decrypt(ciphertext: bytes) -> str:
+    return _cipher().decrypt(ciphertext).decode("utf-8")
+
+
+def rotate(ciphertext: bytes) -> bytes:
+    return _cipher().rotate(ciphertext)
+
 
 VaultEntryKind = Literal["oauth_app", "api_key", "refresh_token"]
 
@@ -36,24 +64,18 @@ class VaultEntry:
     ciphertext: bytes
 
     def reveal(self) -> str:
-        return _fernet.decrypt(self.ciphertext).decode("utf-8")
+        return decrypt(self.ciphertext)
 
 
 class InMemoryVault:
-    """Minimal build uses an in-process store seeded at startup / via the API.
-    Swap for a `CredentialVaultEntry` table (see marketplace/models.py) backed
-    read/write path without changing any caller."""
+    """Local/dev store. Production persists `VaultEntry` rows (ciphertext
+    only) in Postgres under row-level security; the interface is the same."""
 
     def __init__(self) -> None:
         self._entries: dict[str, VaultEntry] = {}
 
     def put(self, entry_id: str, tenant_id: str, kind: VaultEntryKind, secret: str) -> VaultEntry:
-        entry = VaultEntry(
-            id=entry_id,
-            tenant_id=tenant_id,
-            kind=kind,
-            ciphertext=_fernet.encrypt(secret.encode("utf-8")),
-        )
+        entry = VaultEntry(id=entry_id, tenant_id=tenant_id, kind=kind, ciphertext=encrypt(secret))
         self._entries[entry_id] = entry
         return entry
 

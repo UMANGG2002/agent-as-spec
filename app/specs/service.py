@@ -72,19 +72,30 @@ async def approve_plan(
     when another process tries to compile the spec."""
     from app.factory import agent_patterns
 
+    session.info.setdefault("tenant_id", identity.tenant_id)  # RLS scope if no request context
     runtime = runtime or AgentRuntimeConfig()
     agent_patterns.validate_runtime_config(plan.steps, runtime)
 
-    existing = [s for s in await specs_store.list_specs(identity.tenant_id) if s.name == name]
-    version = max((s.version for s in existing), default=0) + 1
-    spec_id = existing[0].spec_id if existing else f"spec_{uuid.uuid4().hex[:12]}"
+    existing = await specs_store.find_by_name(identity.tenant_id, name, session=session)
+    version = (existing.version if existing else 0) + 1
+    spec_id = existing.spec_id if existing else f"spec_{uuid.uuid4().hex[:12]}"
 
+    # Snapshot only what this tenant may actually use (owned or granted).
+    # Snapshotting by bare id let a spec copy another tenant's PRIVATE
+    # capability schema and endpoint into a spec just by naming its id.
+    from app.marketplace import service as marketplace_service
+
+    granted = await marketplace_service.granted_capability_ids(session, identity.tenant_id)
     capability_ids = {s.capability_id for s in plan.steps if s.kind != StepKind.HUMAN_APPROVAL and s.capability_id}
     snapshots = {}
     for capability_id in capability_ids:
         capability = await registry_store.get(session, capability_id)
-        if capability is not None:
-            snapshots[capability_id] = capability
+        if capability is None:
+            continue
+        if capability.tenant_id != identity.tenant_id and capability_id not in granted:
+            raise ValueError(f"capability '{capability_id}' is not available to tenant '{identity.tenant_id}' "
+                             "(request access first)")
+        snapshots[capability_id] = capability
 
     _validate_step_calls(plan, snapshots)
     from app.factory import tool_policy
@@ -108,7 +119,21 @@ async def approve_plan(
         guardrail_policy_id=guardrail_policy_id,
         approved_by=identity.user_id,
     )
-    return await specs_store.save_spec(spec)
+    from app.core import audit
+
+    saved = await specs_store.save_spec(spec, session=session)
+    audit.record(session, tenant_id=identity.tenant_id, actor=identity.user_id, action="spec.approve",
+                 resource_type="agent_spec", resource_id=spec_id,
+                 details={"name": name, "version": version, "pattern": runtime.pattern.value,
+                          "tool_policy_active": runtime.tool_policy.is_active()})
+    await session.commit()
+    from app.config import settings as _settings
+
+    if _settings.eval_on_approval:
+        from app.evals import auto as _auto
+
+        _auto.schedule_on_spec_approved(saved)  # background: never blocks or fails approval
+    return saved
 
 
 def _validate_step_calls(plan: ExecutionPlan, snapshots: dict) -> None:

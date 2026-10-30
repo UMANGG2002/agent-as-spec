@@ -18,15 +18,14 @@ from __future__ import annotations
 
 import time
 
-import jwt
 from opentelemetry import trace
 
+from app.auth import keys
 from app.auth.models import DelegatedToken, IdentityContext
 from app.config import settings
 
 tracer = trace.get_tracer("capability_marketplace.auth")
 
-ALGORITHM = "HS256"
 
 
 def issue_root_token(identity: IdentityContext) -> DelegatedToken:
@@ -77,7 +76,10 @@ def exchange_for_tool_call(run_token: DelegatedToken, *, capability_id: str, req
 
 
 def verify(encoded: str) -> IdentityContext:
-    payload = jwt.decode(encoded, settings.jwt_signing_key, algorithms=[ALGORITHM], issuer=settings.jwt_issuer)
+    """Signature, algorithm, issuer, audience, expiry and required claims
+    are all checked by `keys.decode`. Revocation is checked by the caller
+    (`app/auth/deps.py`), which has the async context to ask Redis."""
+    payload = keys.decode(encoded)
     return IdentityContext(
         tenant_id=payload["tenant_id"],
         brand_id=payload["brand_id"],
@@ -93,6 +95,7 @@ def _issue(identity: IdentityContext, *, scope: str, ttl: int) -> DelegatedToken
     expires_at = now + ttl
     payload = {
         "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
         "jti": jti,
         "iat": int(now),
         "exp": int(expires_at),
@@ -102,5 +105,5 @@ def _issue(identity: IdentityContext, *, scope: str, ttl: int) -> DelegatedToken
         "scope": scope,
         "act_chain": list(identity.act_chain),
     }
-    encoded = jwt.encode(payload, settings.jwt_signing_key, algorithm=ALGORITHM)
+    encoded = keys.sign(payload)
     return DelegatedToken(jti=jti, identity=identity, scope=scope, expires_at=expires_at, encoded=encoded)

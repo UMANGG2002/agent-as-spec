@@ -48,7 +48,7 @@ async def test_save_and_get_spec_roundtrips():
     saved = await specs_store.save_spec(spec)
     assert saved.spec_id == "spec_abc123"
 
-    fetched = await specs_store.get_spec("spec_abc123")
+    fetched = await specs_store.get_spec("spec_abc123", tenant_id="acme")
     assert fetched is not None
     assert fetched.name == "ingestion-agent"
     assert fetched.steps[0].capability_id == "cap_demo"
@@ -91,7 +91,7 @@ async def test_reapproving_same_spec_id_bumps_version_in_place():
     await specs_store.save_spec(AgentSpec(version=1, **base))
     await specs_store.save_spec(AgentSpec(version=2, **base))
 
-    fetched = await specs_store.get_spec("spec_versioned")
+    fetched = await specs_store.get_spec("spec_versioned", tenant_id="acme")
     assert fetched.version == 2  # replaced in place, not duplicated
 
 
@@ -160,7 +160,7 @@ async def test_approve_plan_snapshots_the_bound_capabilities(session):
     # Re-fetching from the spec store (not just the in-memory return value)
     # confirms the snapshot and instruction actually round-trip through
     # persistence.
-    fetched = await specs_store.get_spec(spec.spec_id)
+    fetched = await specs_store.get_spec(spec.spec_id, tenant_id=spec.tenant_id)
     assert fetched is not None
     assert fetched.capability_snapshots["cap_ingest"].name == "ingestion-tool"
     assert fetched.instruction == spec.instruction

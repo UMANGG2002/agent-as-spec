@@ -1,0 +1,98 @@
+# Production-shaped local stack: Postgres 16 + pgvector, Redis 7, and the
+# four process roles. `docker compose up -d --build`, then open http://localhost:8000/ui/
+#
+# Mirrors production topology -- a separate migrate job, owner vs app DB
+# roles, queue-mode runners, outbox relay -- with a LOCAL profile by default
+# so the UI's dev login works and the test worker on your host can be
+# registered. For a staging-like run set ENVIRONMENT=staging and real keys
+# (python scripts/gen_keys.py >> .env); the app then refuses dev defaults.
+#
+# No init scripts are mounted into Postgres: the migrate job creates the
+# least-privilege app role (agentspec_app) and its grants itself.
+x-app: &app
+  build: .
+  environment: &env
+    ENVIRONMENT: ${ENVIRONMENT:-local}
+    DATABASE_URL: postgresql+asyncpg://agentspec_app:${APP_DB_PASSWORD:-app_pw}@postgres:5432/agentspec
+    DATABASE_MIGRATION_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-owner_pw}@postgres:5432/agentspec
+    REDIS_URL: redis://redis:6379/0
+    RUNNER_MODE: queue
+    MEMORY_BACKEND: ${MEMORY_BACKEND:-mock}
+    JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+    JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-dev-only-change-me-please-32-bytes!}
+    JWT_ACTIVE_KID: ${JWT_ACTIVE_KID:-}
+    JWT_PRIVATE_KEYS_JSON: ${JWT_PRIVATE_KEYS_JSON:-}
+    VAULT_KEYS_JSON: ${VAULT_KEYS_JSON:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_MODEL_NAME: ${LLM_MODEL_NAME:-}
+    GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    OTEL_TRACE_SAMPLE_RATIO: "0.05"
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Lets containers reach services on your machine, e.g. the test worker:
+  # register it from the UI as http://host.docker.internal:9100
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-owner_pw}
+      POSTGRES_DB: agentspec
+    command: ["postgres", "-c", "max_connections=400", "-c", "shared_buffers=512MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agentspec"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  migrate:
+    <<: *app
+    command: ["python", "-m", "app.core.migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 10s
+      retries: 6
+
+  runner:
+    <<: *app
+    command: ["python", "-m", "app.sessions.runner"]
+    environment:
+      <<: *env
+      SERVICE_ROLE: runner
+    deploy:
+      replicas: 2
+    stop_grace_period: 30s
+
+  relay:
+    <<: *app
+    command: ["python", "-m", "app.relay_main"]
+    environment:
+      <<: *env
+      SERVICE_ROLE: relay
+
+volumes:
+  pgdata:

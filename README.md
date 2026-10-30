@@ -1,4 +1,4 @@
-# Capability Marketplace on Google ADK
+# Agent-as-Spec — Capability Marketplace on Google ADK
 
 A minimal, runnable implementation of the architecture proposed for a
 multi-tenant capability marketplace: clients register MCP servers, A2A agent
@@ -10,6 +10,40 @@ auth-delegated, guardrailed, traced agent.
 
 See the companion architecture doc for the full design rationale. This
 README covers running what's actually implemented here.
+
+> **Production architecture:** the platform has been rebuilt for horizontal
+> scale and multi-tenancy (Postgres with row-level security, Redis Cluster,
+> sharded work queue + runner workers, resumable SSE streams, mem0 memory,
+> context compaction, rate limits, quotas, circuit breakers, transactional
+> outbox, key rotation). Everything that changed, why, the design patterns
+> and the capacity math are in **[`docs/PRODUCTION_ARCHITECTURE.md`](docs/PRODUCTION_ARCHITECTURE.md)**.
+> Local development is unchanged: `ENVIRONMENT=local` needs no services.
+
+## Production deployment (summary)
+
+```bash
+python scripts/gen_keys.py > .env.production   # RS256 signing key + vault key
+docker compose up --build                       # Postgres+pgvector, Redis, migrate, api, 2 runners, relay
+```
+
+Four process roles from one image: `uvicorn app.main:app` (API),
+`python -m app.sessions.runner` (runner workers), `python -m app.relay_main`
+(outbox relay), `python -m app.core.migrate` (once per deploy, owner DB role).
+With `ENVIRONMENT=staging|production` the process refuses to start on any
+dev default (SQLite, in-process Redis, HS256, no vault key, inline runners).
+
+Talking to an agent -- in the UI's **Chat** tab, or over the v1 API. Pick
+`spec_test_agent` to reach every approved spec through one router (it
+transfers to the right sub-agent), or one spec on its own:
+
+```bash
+GET  /v1/agents                       chat targets: spec_test_agent + every approved spec
+POST /v1/sessions                     {"spec_id": "spec_test_agent" | "spec_..."}  -> {session_id}
+POST /v1/sessions/{sid}/messages      {"text": "..."}  + Idempotency-Key -> 202 {invocation_id, stream_url}
+GET  {stream_url}                     SSE; reconnect with Last-Event-ID to resume exactly where it stopped
+POST /v1/sessions/{sid}/messages      {"confirmations": [{"function_call_id": "...", "confirmed": true}]}
+POST /v1/sessions/{sid}/invocations/{iid}/cancel
+```
 
 ## What's real vs. stubbed
 
@@ -64,6 +98,20 @@ What's intentionally a thin extension point rather than fully built out:
   sends a minimal JSON-RPC `message/send`; swap in the real `a2a` SDK client
   for streaming/task-polling/push-notification conformance.
 
+## Quick start: real Postgres, Redis and mem0, no image build
+
+```bash
+uv sync --all-extras
+chmod +x scripts/dev.sh
+./scripts/dev.sh all          # pulls Postgres + Redis, migrates, runs api + runner + relay with uvicorn
+```
+
+Then open http://127.0.0.1:8000/ui/. Details, settings and troubleshooting: [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md).
+
+## Evaluating agents
+
+Automated evaluation of individual agents, the router end to end and the planner: deterministic checks, an LLM judge, golden datasets, regression gates and auto-eval. What it proves and what it cannot: [docs/EVALUATION.md](docs/EVALUATION.md). Run it with `python scripts/eval.py --help`.
+
 ## Running it
 
 ```bash
@@ -116,22 +164,20 @@ API: a knowledge-base tab (add/search free-text documents a tenant's agents
 get grounded against), a tools tab (register an MCP/OpenAPI/A2A capability,
 search what's already registered), and an agent-builder tab (describe what
 you want in plain English, review the typed plan the planner produced,
-approve it, and it's saved as a versioned `AgentSpec` document in MongoDB --
-re-approving the same name bumps the version in place rather than
-duplicating it).
+approve it, and it's saved as a versioned `AgentSpec` in Postgres (SQLite
+locally) -- re-approving the same name bumps the version, and every version
+stays readable in `agent_spec_versions`).
 
 ```bash
-pip install -e ".[adk,openapi-mcp,mongo,dev]"
+pip install -e ".[adk,openapi-mcp,dev]"
 uvicorn app.main:app --reload
 ```
 
 Open `http://localhost:8000/ui`, hit **Connect** (tenant `acme` by default --
 mints a dev token the same way the curl walkthrough above does), and work
-through the three tabs. No real MongoDB required to try it: `app/specs/store.py`
-falls back to an in-process store the same way `runtime/redis_streams.py`
-falls back without Redis -- clearly logged, not silent, since the fallback
-loses every spec on restart; `docker run -p 27017:27017 mongo` for the real
-thing. The UI and the `adk web` agent from the section below are two
+through the three tabs. Nothing else needs to run locally: specs live in
+the same SQL database as everything else (MongoDB is no longer used), and
+Redis defaults to an in-process stand-in. The UI and the `adk web` agent from the section below are two
 different clients of the exact same backend and data -- see
 `ARCHITECTURE_MODULES.md` for the full module map of who calls what.
 
@@ -509,44 +555,38 @@ The MCP client side needs the `mcp` package (now pulled in by the `litellm`
 extra) and the worker's servers need `fastmcp` (the `openapi-mcp` extra):
 
 ```bash
-uv sync --extra litellm --extra mongo --extra dev --extra openapi-mcp
+uv sync --extra litellm --extra dev --extra openapi-mcp   # add --extra memory for mem0
 ```
 
-### Everything's readable on disk, not just in a database
+### Readable on disk locally
 
-Both of the stores this project writes to keep a plain JSON mirror on local
-disk, so you can inspect what's actually been saved without a DB client:
-
-- **`.data/agent_specs_fallback.json`** -- every approved `AgentSpec`
-  (`app/specs/store.py`). This one doubles as the real store whenever
-  MongoDB isn't reachable (the common case for local/demo use), shared
-  across processes on purpose: it's how the `adk web` supervisor can see a
-  spec approved through the FastAPI app even though they're separate OS
-  processes. Each entry also carries a `capability_snapshots` field -- a
-  full copy of every capability the spec's steps are bound to (tools, kind,
-  endpoint, everything in `Capability`), taken at the moment it was
-  approved (see `app/routers/agent_specs.py`). That's what makes an
-  approved spec self-describing on its own: you can read exactly what each
-  step calls without cross-referencing the separate capability registry,
-  whose own row can change or be deleted later. Execution never trusts this
-  snapshot for authorization, though -- it's re-resolved live, every run,
-  against current grants.
-- **`.data/capabilities.json`** -- every registered `Capability`
-  (`app/registry/store.py`). Unlike the spec file above, this one is purely
-  a mirror: the real source of truth stays the `capabilities` SQL table
-  (SQLite by default), and this file is just written alongside every save so
-  the registry's structured schema is readable without a DB client.
-
-Both are gitignored (`.data/`) and regenerate on first save -- delete them
-any time to reset local state without touching the SQL database.
+In the local environment every registered capability is also mirrored to
+**`.data/capabilities.json`** (`app/registry/store.py`) so the registry can
+be read without a DB client. Approved specs now live in the `agent_specs`
+table (head) and `agent_spec_versions` (every version, immutable) -- each
+spec carries `capability_snapshots`, a full copy of every capability its
+steps were bound to at approval time, so a spec is self-describing.
+Execution never trusts the snapshot for authorization: capabilities are
+re-resolved against current grants on every run.
 
 ## Tests
 
 ```bash
-pytest -q
+pytest -q                                        # SQLite + in-process Redis, no services
+
+# Same suite on real infrastructure (RLS enforced: connect as a NON-superuser role)
+DATABASE_MIGRATION_URL=postgresql+asyncpg://postgres@localhost:5432/agentspec \
+DATABASE_URL=postgresql+asyncpg://agentspec_app:app@localhost:5432/agentspec \
+REDIS_URL=redis://localhost:6379/0 pytest -q
 ```
 
-Covers registry/marketplace grant visibility, the offline planner, guardrail
+209 tests. Beyond the original coverage: platform primitives
+(`test_platform_core.py`), the session runtime end to end incl. resumable
+streams, crash reclaim, confirmations, memory and compaction
+(`test_sessions_runtime.py`), and the data platform -- outbox, audit, RLS,
+partitions, migrations, mem0 on pgvector (`test_data_platform.py`).
+
+Also covers registry/marketplace grant visibility, the offline planner, guardrail
 policy (denylist/redaction/dynamic-HIL/adaptive-escalation), the OAuth
 delegation chain (including a regression test for a real scoping bug this
 build caught and fixed -- see `tests/test_delegation.py`), and idempotency.

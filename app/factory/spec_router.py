@@ -116,8 +116,11 @@ class RouterInstruction:
     `{var}` state templating) -- after `reload_specs` it describes the new
     specs without rebuilding the router."""
 
-    def __init__(self, state: dict) -> None:
+    def __init__(self, state: dict, *, auto_reload: bool = False) -> None:
         self.state = state
+        # Under the API runtime the mounted set is rebuilt from the current
+        # specs on every turn, so there is nothing to reload by hand.
+        self.auto_reload = auto_reload
 
     def __call__(self, ctx: Any = None) -> str:  # noqa: ARG002
         loaded: dict = self.state.get("loaded", {})
@@ -128,7 +131,8 @@ class RouterInstruction:
                 for info in loaded.values()
             )
         else:
-            lines = "(none loaded -- approve a plan first, then call reload_specs)"
+            lines = ("(none -- approve a plan first; it shows up here on the next message)" if self.auto_reload
+                     else "(none loaded -- approve a plan first, then call reload_specs)")
         text = (
             "You are the test router for approved agent specs. Each approved spec is mounted as "
             "one of your sub-agents, compiled exactly as approved (its own execution pattern and "
@@ -137,8 +141,11 @@ class RouterInstruction:
             "conversation comes back to you afterwards. Don't try to do a spec's work yourself; "
             "you have no tools for it.\n\n"
             f"Mounted specs:\n{lines}\n\n"
-            "Call list_loaded_specs for each spec's steps and callbacks, and reload_specs if the "
-            "person just approved or changed a spec (picks it up without a restart)."
+            + ("Call list_loaded_specs for each spec's steps and callbacks. Newly approved specs are "
+               "picked up automatically on the next message."
+               if self.auto_reload else
+               "Call list_loaded_specs for each spec's steps and callbacks, and reload_specs if the "
+               "person just approved or changed a spec (picks it up without a restart).")
         )
         if skipped:
             text += "\n\nSpecs that failed to load:\n" + "\n".join(f"- {reason}" for reason in skipped.values())

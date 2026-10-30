@@ -109,6 +109,26 @@ class GuardrailEngine:
             return True, rule.reason
         return False, None
 
+    async def needs_approval_async(
+        self,
+        *,
+        policy: GuardrailPolicy,
+        capability: Capability,
+        tool_name: str,
+        identity: IdentityContext,
+        cost_estimate: float | None = None,
+    ) -> tuple[bool, str | None]:
+        """`needs_approval` with the fleet-wide (Redis) block count."""
+        threshold = policy.escalate_to_approval_after_blocks
+        if threshold is not None and await policy_mod.block_count_async(identity.tenant_id, capability.id) >= threshold:
+            return True, f"escalated: repeated guardrail blocks on {capability.id} for {identity.tenant_id}"
+        rule = policy_mod.requires_approval(
+            tenant_id=identity.tenant_id, capability_id=capability.id, tool_name=tool_name, cost_estimate=cost_estimate
+        )
+        if rule:
+            return True, rule.reason
+        return False, None
+
     def _record_block(self, stage: str, policy_id: str, *, tenant_id: str | None = None, capability_id: str | None = None) -> None:
         guardrail_blocks_total.add(1, {"stage": stage, "policy_id": policy_id})
         if tenant_id and capability_id:

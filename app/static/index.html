@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%232f5bd3%22/%3E%3C/svg%3E">
-<title>Capability Marketplace</title>
+<title>Agent-as-Spec</title>
 <style>
 :root {
   --bg: #f5f7fa; --surface: #ffffff; --surface-2: #f8fafc; --border: #e2e7ee; --border-strong: #cfd6e0;
@@ -201,13 +201,54 @@ body.ab-open #toasts { bottom: calc(var(--ab-h, 64px) + 12px); }
 .list-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 11px; margin-top: 8px; font-size: 13px; background: var(--surface); }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+/* ---------- Chat ---------- */
+.chat-shell { display: grid; grid-template-columns: 290px 1fr; gap: 16px; height: calc(100vh - 150px); min-height: 520px; }
+@media (max-width: 860px) { .chat-shell { grid-template-columns: 1fr; height: auto; } .chat-side { max-height: 260px; } }
+.chat-side, .chat-main { margin: 0; display: flex; flex-direction: column; min-height: 0; padding: 0; }
+.chat-side .side-head, .chat-main .main-head { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chat-side .side-body { padding: 10px 12px; overflow-y: auto; flex: 1; }
+.conv { display: block; width: 100%; text-align: left; font: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 6px; cursor: pointer; transition: border-color .15s, background .15s; color: var(--text); }
+.conv:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.conv.on { border-color: var(--accent); background: var(--accent-soft); }
+.conv .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv .m { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+.main-head .title { font-weight: 700; font-size: 14px; }
+.main-head .end { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.chat-log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+.msg { max-width: min(760px, 86%); display: flex; flex-direction: column; gap: 3px; animation: rise .18s var(--ease); }
+.msg.user { align-self: flex-end; align-items: flex-end; }
+.msg .who { font-size: 11px; color: var(--faint); font-weight: 600; padding: 0 4px; }
+.msg .bubble { padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); background: var(--surface); }
+.msg.user .bubble { background: var(--accent); color: var(--on-accent); border-color: transparent; border-bottom-right-radius: 4px; }
+.msg.agent .bubble { border-bottom-left-radius: 4px; background: var(--surface-2); }
+.msg .bubble code { font-family: var(--mono); font-size: 12px; background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 4px; }
+.sysline { align-self: center; font-size: 11.5px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; }
+.sysline.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+.toolcall { align-self: flex-start; max-width: min(760px, 86%); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-size: 12.5px; }
+.toolcall summary { cursor: pointer; padding: 6px 10px; display: flex; gap: 8px; align-items: center; list-style: none; }
+.toolcall summary::-webkit-details-marker { display: none; }
+.toolcall .name { font-family: var(--mono); font-weight: 600; }
+.toolcall pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--border); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; background: var(--surface-2); }
+.dotspin { width: 10px; height: 10px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+.confirm-card { align-self: flex-start; max-width: min(760px, 86%); border: 1px solid var(--warn); background: var(--warn-soft); border-radius: var(--radius); padding: 10px 12px; font-size: 13px; }
+.confirm-card .actions { display: flex; gap: 8px; margin-top: 8px; }
+.typing { align-self: flex-start; display: inline-flex; gap: 4px; padding: 10px 13px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: blink 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+.reconnect { margin: 0 16px; padding: 6px 10px; font-size: 12px; border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--warn); }
+.composer { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea { flex: 1; resize: none; min-height: 42px; max-height: 180px; font: inherit; font-size: 13.5px; }
+.composer .opts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.composer label { font-size: 11.5px; color: var(--muted); display: flex; gap: 5px; align-items: center; cursor: pointer; }
 </style>
 </head>
 <body>
 
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand"><span class="dot"></span>Capability Marketplace</div>
+    <div class="brand"><span class="dot"></span>Agent-as-Spec</div>
     <div class="conn">
       <span id="status" class="badge bad">not connected</span>
       <input id="tenant-id" value="acme" aria-label="tenant id" title="tenant">
@@ -217,6 +258,7 @@ body.ab-open #toasts { bottom: calc(var(--ab-h, 64px) + 12px); }
   </div>
   <nav class="tabs" id="tabs">
     <button class="tab active" data-panel="builder">Agent Builder</button>
+    <button class="tab" data-panel="chat">Chat</button>
     <button class="tab" data-panel="approvals">Approvals <span id="approvals-count" class="badge" hidden>0</span></button>
     <button class="tab" data-panel="specs">Saved Specs</button>
     <button class="tab" data-panel="capabilities">Capabilities</button>
@@ -361,6 +403,39 @@ body.ab-open #toasts { bottom: calc(var(--ab-h, 64px) + 12px); }
       <div class="card-head"><h2>Search</h2></div>
       <input id="kb-q" placeholder="Search documents…" aria-label="search documents">
       <div id="kb-list"></div>
+    </div>
+  </section>
+
+  <!-- ======================= Chat ======================= -->
+  <section id="chat" class="panel">
+    <div class="chat-shell">
+      <aside class="card chat-side">
+        <div class="side-head">
+          <h2 style="margin:0;font-size:14.5px">Conversations</h2>
+          <button id="chat-new" class="btn btn-primary btn-sm" style="margin-left:auto">New chat</button>
+        </div>
+        <div class="side-body">
+          <div class="field"><span class="label">Talk to</span><select id="chat-target" aria-label="chat target"></select></div>
+          <p class="hint" id="chat-target-desc"></p>
+          <div id="chat-sessions"></div>
+        </div>
+      </aside>
+      <div class="card chat-main">
+        <div class="main-head">
+          <span class="title" id="chat-title">No conversation</span>
+          <span id="chat-status" class="badge" hidden></span>
+          <span class="end"><button id="chat-cancel" class="btn btn-ghost btn-sm" hidden>Stop</button></span>
+        </div>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <div id="chat-reconnect" class="reconnect" hidden>Connection lost, reconnecting… (nothing will be missed)</div>
+        <div class="composer">
+          <textarea id="chat-input" rows="1" placeholder="Message the agent… (Enter to send, Shift+Enter for a new line)" aria-label="message"></textarea>
+          <div class="opts">
+            <label title="Show the answer as it's generated"><input type="checkbox" id="chat-stream" checked>Stream</label>
+            <button id="chat-send" class="btn btn-primary">Send</button>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </main>
@@ -1124,6 +1199,223 @@ const Knowledge = {
   },
 };
 
+
+/* =========================================================================
+   Component: Chat -- talk to spec_test_agent (every approved spec as a
+   sub-agent) or to one spec, over the v1 sessions API:
+     POST /v1/sessions -> POST /v1/sessions/{sid}/messages -> SSE stream
+   The stream is read with fetch() (EventSource can't send Authorization)
+   and resumed after any network drop with Last-Event-ID, so no event is
+   ever missed or shown twice.
+   ========================================================================= */
+const Chat = {
+  targets: [], sessions: [], sid: null, sessionTarget: null, inv: null, lastId: null, ctrl: null,
+  live: null, tools: new Map(), typingEl: null, loaded: false,
+  init() {
+    $("#chat-new").addEventListener("click", e => !needConnection() && busy(e.currentTarget, () => this.newChat()));
+    $("#chat-send").addEventListener("click", () => this.send());
+    $("#chat-cancel").addEventListener("click", e => busy(e.currentTarget, () => this.cancel()));
+    $("#chat-target").addEventListener("change", () => this.describeTarget());
+    const input = $("#chat-input");
+    input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); this.send(); } });
+    input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(180, input.scrollHeight) + "px"; });
+    $("#chat-sessions").addEventListener("click", e => { const b = e.target.closest("[data-sid]"); if (b) this.open(b.dataset.sid); });
+    $("#chat-log").addEventListener("click", e => { const b = e.target.closest("[data-confirm]"); if (b) this.confirm(b); });
+    this.renderEmpty();
+  },
+  renderEmpty() {
+    mount("#chat-log", html`<div style="margin:auto;max-width:420px">${emptyState("Start a conversation",
+      "Pick spec_test_agent to reach every approved spec through one chat, or a single spec, then New chat.")}</div>`);
+  },
+  targetName(id) { const t = this.targets.find(x => x.id === id); return t ? t.name : id; },
+  agentName(name) {
+    // Compiled spec agents are named spec_<name>_<last 6 of spec_id>: show the spec's own name.
+    const m = /_([0-9a-f]{6})$/.exec(name || "");
+    const t = m && this.targets.find(x => x.kind === "spec" && x.id.endsWith(m[1]));
+    return t ? t.name : (name || "agent");
+  },
+  async refresh() {
+    if (!session.token) return;
+    const [targets, sessions] = await Promise.all([api("/v1/agents"), api("/v1/sessions")]);
+    this.targets = targets; this.sessions = sessions;
+    const sel = $("#chat-target"), cur = sel.value || "spec_test_agent";
+    mount(sel, html`${targets.map(t => html`<option value="${t.id}">${t.kind === "router" ? "★ " : ""}${t.name}${t.version ? ` (v${t.version})` : ""}</option>`)}`);
+    sel.value = targets.some(t => t.id === cur) ? cur : "spec_test_agent";
+    this.describeTarget(); this.renderSessions();
+    if (!this.loaded && sessions.length && !this.sid) { this.loaded = true; }
+  },
+  describeTarget() { const t = this.targets.find(x => x.id === $("#chat-target").value); $("#chat-target-desc").textContent = t ? t.description || "" : ""; },
+  renderSessions() {
+    mount("#chat-sessions", this.sessions.length ? html`${this.sessions.map(s => html`<button class="conv ${s.session_id === this.sid ? "on" : ""}" data-sid="${s.session_id}">
+        <div class="t">${this.targetName(s.spec_id)}</div><div class="m">${ago(s.last_activity_at)} · ${s.session_id.slice(-8)}</div></button>`)}`
+      : html`<div style="margin-top:10px">${emptyState("No conversations yet")}</div>`);
+  },
+  async newChat() {
+    const target = $("#chat-target").value || "spec_test_agent";
+    const s = await api("/v1/sessions", { method: "POST", body: { spec_id: target } });
+    this.sessions.unshift({ session_id: s.session_id, spec_id: s.spec_id, last_activity_at: new Date().toISOString() });
+    await this.open(s.session_id, { fresh: true });
+    $("#chat-input").focus();
+  },
+  async open(sid, { fresh = false } = {}) {
+    this.stopStream();
+    this.sid = sid; const meta = this.sessions.find(s => s.session_id === sid);
+    this.sessionTarget = meta ? meta.spec_id : null;
+    $("#chat-title").textContent = meta ? this.targetName(meta.spec_id) : sid;
+    this.setStatus(null); this.renderSessions();
+    mount("#chat-log", ""); this.tools.clear(); this.live = null;
+    if (fresh) { this.sys(`New conversation with ${this.targetName(this.sessionTarget)}.`); return; }
+    const events = await api(`/v1/sessions/${encodeURIComponent(sid)}/events?limit=300`);
+    if (!events.length) this.sys("No messages yet.");
+    for (const ev of events) this.handleEvent(ev, { history: true });
+    this.live = null; this.scroll(true);
+  },
+  setStatus(text, kind = "") {
+    const el = $("#chat-status");
+    if (!text) { el.hidden = true; $("#chat-cancel").hidden = true; return; }
+    el.hidden = false; el.textContent = text; el.className = `badge ${kind}`;
+    $("#chat-cancel").hidden = !this.inv;
+  },
+  near() { const l = $("#chat-log"); return l.scrollHeight - l.scrollTop - l.clientHeight < 120; },
+  scroll(force) { const l = $("#chat-log"); if (force || this.near()) l.scrollTop = l.scrollHeight; },
+  add(node) { const stick = this.near(); this.clearTyping(); $("#chat-log").appendChild(node); if (stick) this.scroll(true); return node; },
+  el(markup) { const d = document.createElement("div"); d.innerHTML = String(markup).trim(); return d.firstElementChild; },
+  rich(text) {
+    let t = esc(text);
+    t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    return raw(t);
+  },
+  sys(text, kind = "") { return this.add(this.el(html`<div class="sysline ${kind}">${text}</div>`)); },
+  bubble(who, text, user) {
+    return this.add(this.el(html`<div class="msg ${user ? "user" : "agent"}">${user ? "" : html`<span class="who">${who}</span>`}<div class="bubble">${this.rich(text)}</div></div>`));
+  },
+  typing(on) {
+    if (on && !this.typingEl) { this.typingEl = this.el('<div class="typing"><i></i><i></i><i></i></div>'); $("#chat-log").appendChild(this.typingEl); this.scroll(); }
+    if (!on) this.clearTyping();
+  },
+  clearTyping() { if (this.typingEl) { this.typingEl.remove(); this.typingEl = null; } },
+  handleEvent(ev, { history = false } = {}) {
+    if (ev.type === "invocation.queued") { this.setStatus("queued", "info"); this.typing(true); return; }
+    if (ev.type === "invocation.started") { this.setStatus("thinking", "info"); this.typing(true); return; }
+    if (ev.type === "invocation.finished") {
+      this.clearTyping(); this.live = null; this.inv = null;
+      if (ev.status === "succeeded") this.setStatus(null);
+      else if (ev.status === "awaiting_input") this.setStatus("waiting for your approval", "warn");
+      else { this.setStatus(ev.status, "bad"); this.sys(`Run ${ev.status}${ev.error ? `: ${ev.error}` : ""}`, "bad"); }
+      return;
+    }
+    if (ev.type !== "event") return;
+    const author = ev.author || "agent", isUser = author === "user";
+    if (ev.transfer_to) this.sys(`→ routed to ${this.agentName(ev.transfer_to)}`);
+    for (const c of ev.function_calls || []) {
+      if (c.name === "transfer_to_agent" || c.name === "adk_request_confirmation") continue;
+      const node = this.add(this.el(html`<details class="toolcall"><summary><span class="dotspin"></span><span class="name">${c.name}</span><span class="hint">${this.agentName(author)}</span></summary><pre>${JSON.stringify(c.args || {}, null, 1)}</pre></details>`));
+      this.tools.set(c.id, node);
+    }
+    for (const r of ev.function_responses || []) {
+      if (r.name === "transfer_to_agent" || r.name === "adk_request_confirmation") continue;
+      const res = r.response || {}, ok = res.ok !== false && !res.error;
+      const label = res.status === "awaiting_approval" ? html`<span class="badge warn">needs approval</span>`
+        : res.status === "denied_by_policy" ? html`<span class="badge bad">denied by policy</span>`
+        : ok ? html`<span class="badge good">ok</span>` : html`<span class="badge bad">failed</span>`;
+      const body = html`<summary>${label}<span class="name">${r.name}</span><span class="hint">${res.error || ""}</span></summary><pre>${JSON.stringify(res, null, 1)}</pre>`;
+      const node = this.tools.get(r.id);
+      if (node) mount(node, body); else this.add(this.el(html`<details class="toolcall">${body}</details>`));
+    }
+    if (ev.confirmation_request && !history) {
+      const c = ev.confirmation_request;
+      this.add(this.el(html`<div class="confirm-card"><b>Approval needed</b><div style="margin-top:4px">${c.hint || "This step needs your approval."}</div>
+        <div class="actions"><button class="btn btn-good btn-sm" data-confirm="${c.function_call_id}" data-ok="1">Approve</button>
+        <button class="btn btn-danger btn-sm" data-confirm="${c.function_call_id}" data-ok="0">Reject</button></div></div>`));
+    }
+    if (ev.text) {
+      if (ev.partial) {
+        if (!this.live || this.live.author !== author) this.live = { author, text: "", node: this.bubble(this.agentName(author), "", isUser) };
+        this.live.text += ev.text; mount($(".bubble", this.live.node), this.rich(this.live.text)); this.scroll();
+      } else if (this.live && this.live.author === author) {
+        mount($(".bubble", this.live.node), this.rich(ev.text)); this.live = null;
+      } else this.bubble(isUser ? "you" : this.agentName(author), ev.text, isUser);
+    }
+    if (!history && this.inv && !ev.partial && (ev.function_calls || ev.function_responses)) this.typing(true);
+  },
+  async send() {
+    if (needConnection()) return;
+    const input = $("#chat-input"), text = input.value.trim();
+    if (!text || this.inv) return;
+    if (!this.sid) await this.newChat();
+    input.value = ""; input.style.height = "auto";
+    this.bubble("you", text, true);
+    await this.post({ text, stream_tokens: $("#chat-stream").checked });
+  },
+  async post(body) {
+    try {
+      const inv = await api(`/v1/sessions/${encodeURIComponent(this.sid)}/messages`, {
+        method: "POST", body, headers: { "Idempotency-Key": crypto.randomUUID() } });
+      this.inv = inv; this.lastId = null; this.setStatus("queued", "info"); this.typing(true);
+      this.follow(inv);
+    } catch (e) { this.sys(e.message, "bad"); }
+  },
+  async confirm(btn) {
+    if (this.inv) return;
+    const card = btn.closest(".confirm-card");
+    $$("button", card).forEach(b => { b.disabled = true; });
+    const ok = btn.dataset.ok === "1";
+    card.insertAdjacentHTML("beforeend", String(html`<div class="hint" style="margin-top:6px">${ok ? "Approved" : "Rejected"} by you.</div>`));
+    await this.post({ confirmations: [{ function_call_id: btn.dataset.confirm, confirmed: ok }], stream_tokens: $("#chat-stream").checked });
+  },
+  stopStream() { if (this.ctrl) { this.ctrl.abort(); this.ctrl = null; } this.inv = null; $("#chat-reconnect").hidden = true; },
+  async cancel() {
+    if (!this.inv) return;
+    await api(`/v1/sessions/${encodeURIComponent(this.sid)}/invocations/${encodeURIComponent(this.inv.invocation_id)}/cancel`, { method: "POST" });
+    this.setStatus("stopping…", "warn");
+  },
+  async follow(inv) {
+    const sid = this.sid;
+    let attempt = 0, finished = false;
+    while (!finished && this.sid === sid && this.inv && this.inv.invocation_id === inv.invocation_id) {
+      const ctrl = new AbortController(); this.ctrl = ctrl;
+      try {
+        const headers = { Authorization: `Bearer ${session.token}`, Accept: "text/event-stream" };
+        if (this.lastId) headers["Last-Event-ID"] = this.lastId;
+        const resp = await fetch(inv.stream_url, { headers, signal: ctrl.signal, cache: "no-store" });
+        if (!resp.ok) throw new Error(`stream ${resp.status}`);
+        $("#chat-reconnect").hidden = true; attempt = 0;
+        const reader = resp.body.getReader(), dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let cut;
+          while ((cut = buf.indexOf("\n\n")) >= 0) {
+            const block = buf.slice(0, cut); buf = buf.slice(cut + 2);
+            let id = null, data = "";
+            for (const line of block.split("\n")) {
+              if (line.startsWith("id: ")) id = line.slice(4);
+              else if (line.startsWith("data: ")) data += line.slice(6);
+            }
+            if (!data) continue;
+            if (id) this.lastId = id;
+            const ev = JSON.parse(data);
+            this.handleEvent(ev);
+            if (ev.type === "invocation.finished") finished = true;
+          }
+        }
+      } catch (e) {
+        if (ctrl.signal.aborted) return;
+      }
+      if (!finished && this.sid === sid && this.inv) {
+        // Dropped before the end: reconnect and resume after lastId.
+        $("#chat-reconnect").hidden = false;
+        attempt += 1;
+        await new Promise(r => setTimeout(r, Math.min(8000, 500 * 2 ** Math.min(attempt, 4))));
+      }
+    }
+    $("#chat-reconnect").hidden = true;
+    if (this.sid === sid) { const meta = this.sessions.find(s => s.session_id === sid); if (meta) meta.last_activity_at = new Date().toISOString(); this.renderSessions(); }
+  },
+};
+
 /* =========================================================================
    Tabs & connect
    ========================================================================= */
@@ -1135,6 +1427,7 @@ const Tabs = {
     ActionBar.render();
     if (id === "approvals") Approvals.refresh();
     if (id === "specs") Specs.refresh();
+    if (id === "chat") Chat.refresh().catch(e => notify(e.message, "bad"));
   },
 };
 $("#connect-btn").addEventListener("click", e => busy(e.currentTarget, async () => {
@@ -1148,9 +1441,10 @@ $("#connect-btn").addEventListener("click", e => busy(e.currentTarget, async () 
   } catch (err) { session.token = null; st.textContent = "connection failed"; st.className = "badge bad"; throw err; }
   await Promise.all([Runtime.loadOptions(), Grants.refresh()]);
   Discover.search(); Specs.refresh(); Knowledge.search(); Approvals.start();
+  Chat.sid = null; Chat.stopStream(); Chat.renderEmpty(); if ($("#chat").classList.contains("active")) Chat.refresh();
 }));
 
-[Tabs, Discover, Grants, Plan, Policy, Runtime, ActionBar, Approvals, Specs, Register, Knowledge].forEach(c => c.init());
+[Tabs, Discover, Grants, Plan, Policy, Runtime, ActionBar, Approvals, Specs, Register, Knowledge, Chat].forEach(c => c.init());
 </script>
 </body>
 </html>

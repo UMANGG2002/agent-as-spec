@@ -109,6 +109,26 @@ def _step_tool_function(
     policy_cfg = tool_policy or ToolPolicyConfig()
     state_key = f"spec_runlog:{spec_id or 'adhoc'}"
     capability_label = capability.name if capability else step.capability_id
+    compiled_identity = identity
+
+    def _resolve_identity(tool_context) -> IdentityContext:  # noqa: ANN001
+        """The caller's identity for THIS invocation. Compiled agents are
+        cached and shared by every user of a tenant, so identity can't be
+        baked in at compile time: the session manager writes the
+        authenticated caller into session state (`__identity__`, via the
+        runner's state_delta -- never client-writable) on every message.
+        Falls back to the compile-time identity for direct calls (tests,
+        adk web). A state identity from another tenant is refused."""
+        state = getattr(tool_context, "state", None) if tool_context is not None else None
+        raw = state.get("__identity__") if state is not None else None
+        if not raw:
+            return compiled_identity
+        found = IdentityContext(tenant_id=raw["tenant_id"], brand_id=raw.get("brand_id", "default"),
+                                user_id=raw["user_id"], scopes=tuple(raw.get("scopes") or ()),
+                                act_chain=tuple(raw.get("act_chain") or ()))
+        if compiled_identity is not None and found.tenant_id != compiled_identity.tenant_id:
+            raise PermissionError("session identity belongs to a different tenant than this agent")
+        return found
 
     async def _gate(decision, *, tool_name: str, args: dict, confidence: dict | None, rationale: str, tool_context) -> dict:
         """Resolve a require-approval decision. Returns {"status": "approved", "approval_id"}
@@ -116,12 +136,13 @@ def _step_tool_function(
         from app.db import session_scope
         from app.runtime import approvals as approvals_store
 
+        identity = _resolve_identity(tool_context)
         fc_id = getattr(tool_context, "function_call_id", "") or "" if tool_context is not None else ""
         confirmation = getattr(tool_context, "tool_confirmation", None) if tool_context is not None else None
         decider = getattr(tool_context, "user_id", None) or identity.user_id
         fp = approvals_store.fingerprint(tenant_id=identity.tenant_id, spec_id=spec_id, step_id=step.step_id,
                                          tool_name=tool_name, arguments=args)
-        async with session_scope() as session:
+        async with session_scope(tenant_id=identity.tenant_id) as session:
             row = None
             if confirmation is not None:
                 # Resuming the same call after the person answered in chat.
@@ -193,6 +214,11 @@ def _step_tool_function(
         from app.guardrails.plugin import guardrail_engine
         from app.runtime import approvals as approvals_store
 
+        try:
+            identity = _resolve_identity(tool_context)
+        except PermissionError as exc:
+            return {"step_id": step.step_id, "ok": False, "status": "denied", "error": str(exc)}
+
         if step.kind == StepKind.HUMAN_APPROVAL:
             decision = tp.PolicyDecision(
                 effect=PolicyEffect.REQUIRE_APPROVAL,
@@ -203,7 +229,7 @@ def _step_tool_function(
                                   tool_context=tool_context)
             if outcome["status"] != "approved":
                 return {"kind": "human_approval", **outcome}
-            async with session_scope() as session:
+            async with session_scope(tenant_id=identity.tenant_id) as session:
                 await approvals_store.consume(session, outcome["approval_id"])
             return {"step_id": step.step_id, "kind": "human_approval", "ok": True, "status": "approved",
                     "approval_id": outcome["approval_id"]}
@@ -235,11 +261,11 @@ def _step_tool_function(
         gated = tp.confidence_gated(policy_cfg, step, capability)
         confidence = tp.compute_confidence(
             policy_cfg, step, runlog, self_reported=self_confidence,
-            guardrail_blocks=guardrail_policy_mod.block_count(identity.tenant_id, capability.id),
+            guardrail_blocks=await guardrail_policy_mod.block_count_async(identity.tenant_id, capability.id),
         )
         facts = tp.gather_facts(step=step, capability=capability, tool_name=tool_name, arguments=args, runlog=runlog,
                                 confidence=confidence, tenant_id=identity.tenant_id, user_id=identity.user_id)
-        platform_needed, platform_reason = guardrail_engine.needs_approval(
+        platform_needed, platform_reason = await guardrail_engine.needs_approval_async(
             policy=policy, capability=capability, tool_name=tool_name, identity=identity
         )
         decision = tp.evaluate(policy_cfg, step, capability, facts,
@@ -260,13 +286,17 @@ def _step_tool_function(
                 return {**base, **outcome}
             approval_id = outcome["approval_id"]
 
-        run_id = marketplace_service.new_run_id()
+        # The ADK invocation id, when running under a runner: a reclaimed /
+        # resumed invocation keeps it, so the idempotency cache returns the
+        # first execution's result instead of repeating a side effect.
+        run_id = (getattr(tool_context, "invocation_id", None) if tool_context is not None else None) \
+            or marketplace_service.new_run_id()
         run_token = delegation.delegate_to_run(identity, run_id=run_id, plan_scopes=tuple(step.required_scopes))
         ctx = ToolCallContext(identity=identity, run_id=run_id, run_token=run_token, policy=policy)
         result = await call_capability(capability, tool_name, args, ctx, step_id=step.step_id, approval_handled=True)
 
         if approval_id:
-            async with session_scope() as session:
+            async with session_scope(tenant_id=identity.tenant_id) as session:
                 await approvals_store.consume(session, approval_id)
         runlog.record(step.step_id, result.ok)
         if state is not None:

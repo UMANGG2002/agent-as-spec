@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_identity
@@ -27,8 +27,8 @@ async def _db() -> AsyncSession:
 
 
 class RegisterMcpRequest(BaseModel):
-    name: str
-    description: str = ""
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
     stdio_command: list[str] | None = None
     sse_url: str | None = None
     required_scopes: list[str] = []
@@ -36,7 +36,7 @@ class RegisterMcpRequest(BaseModel):
 
 
 class RegisterOpenApiRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     spec: dict[str, Any]
     base_url: str
     auth_header_name: str = "Authorization"
@@ -54,6 +54,18 @@ class RegisterAgentCardRequest(BaseModel):
 async def register_mcp(
     body: RegisterMcpRequest, identity: IdentityContext = Depends(get_identity), session: AsyncSession = Depends(_db)
 ) -> Capability:
+    from app.config import settings
+    from app.core.http import UnsafeURL, check_url
+
+    if body.stdio_command and settings.is_production_like:
+        # A stdio MCP server is a command run on OUR hosts -- remote code
+        # execution by design. Only network MCP endpoints in production.
+        raise HTTPException(status_code=400, detail="stdio MCP servers are not allowed; register an SSE/HTTP endpoint")
+    if body.sse_url:
+        try:
+            await check_url(body.sse_url)
+        except UnsafeURL as exc:
+            raise HTTPException(status_code=400, detail=f"endpoint refused: {exc}") from exc
     capability = await mcp_adapter.introspect_and_register(
         tenant_id=identity.tenant_id,
         name=body.name,
@@ -64,6 +76,7 @@ async def register_mcp(
         visibility=body.visibility,
     )
     await registry_store.save(session, capability)
+    _audit_registration(session, identity, capability)
     await session.commit()
     return capability
 
@@ -72,6 +85,12 @@ async def register_mcp(
 async def register_openapi(
     body: RegisterOpenApiRequest, identity: IdentityContext = Depends(get_identity), session: AsyncSession = Depends(_db)
 ) -> Capability:
+    from app.core.http import UnsafeURL, check_url
+
+    try:
+        await check_url(body.base_url)
+    except UnsafeURL as exc:
+        raise HTTPException(status_code=400, detail=f"endpoint refused: {exc}") from exc
     capability = openapi_adapter.capability_from_openapi(
         body.spec,
         tenant_id=identity.tenant_id,
@@ -82,6 +101,7 @@ async def register_openapi(
         visibility=body.visibility,
     )
     await registry_store.save(session, capability)
+    _audit_registration(session, identity, capability)
     await session.commit()
     return capability
 
@@ -90,14 +110,28 @@ async def register_openapi(
 async def register_agent_card(
     body: RegisterAgentCardRequest, identity: IdentityContext = Depends(get_identity), session: AsyncSession = Depends(_db)
 ) -> Capability:
-    card = await agent_card_adapter.fetch_agent_card(body.agent_base_url)
+    from app.core.http import UnsafeURL
+
+    try:
+        card = await agent_card_adapter.fetch_agent_card(body.agent_base_url)
+    except UnsafeURL as exc:
+        raise HTTPException(status_code=400, detail=f"endpoint refused: {exc}") from exc
     card.setdefault("url", body.agent_base_url)
     capability = agent_card_adapter.capability_from_agent_card(
         card, tenant_id=identity.tenant_id, required_scopes=body.required_scopes, visibility=body.visibility
     )
     await registry_store.save(session, capability)
+    _audit_registration(session, identity, capability)
     await session.commit()
     return capability
+
+
+def _audit_registration(session: AsyncSession, identity: IdentityContext, capability: Capability) -> None:
+    from app.core import audit
+
+    audit.record(session, tenant_id=identity.tenant_id, actor=identity.user_id, action="capability.register",
+                 resource_type="capability", resource_id=capability.id,
+                 details={"kind": capability.kind.value, "visibility": capability.visibility.value})
 
 
 @router.get("", response_model=list[Capability])
@@ -108,13 +142,15 @@ async def list_capabilities(
     capabilities plus anything already granted to it. For "what's registered
     already" in the config-plane UI; `search` below is for narrowing that
     down by keyword once there are more than a handful."""
-    granted = await marketplace_service.granted_capability_ids(session, identity.tenant_id)
-    return await registry_store.list_for_tenant(session, identity.tenant_id, granted_capability_ids=granted)
+    # Hot read path: served from the two-tier cache (invalidated on
+    # capability save/publish and on grant decisions).
+    caps = await registry_store.visible_capabilities(identity.tenant_id)
+    return [caps[k] for k in sorted(caps)]
 
 
 @router.get("/search")
 async def search_capabilities(
-    q: str,
+    q: str = Query(max_length=500),
     kind: CapabilityKind | None = None,
     limit: int = Query(default=50, ge=1, le=500),
     identity: IdentityContext = Depends(get_identity),
@@ -140,10 +176,12 @@ async def publish_capability(
 ) -> Capability:
     capability = await registry_store.get(session, capability_id)
     if capability is None or capability.tenant_id != identity.tenant_id:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="capability not found")
     updated = capability.model_copy(update={"visibility": visibility})
     await registry_store.save(session, updated)
+    from app.core import audit
+
+    audit.record(session, tenant_id=identity.tenant_id, actor=identity.user_id, action="capability.publish",
+                 resource_type="capability", resource_id=capability_id, details={"visibility": visibility.value})
     await session.commit()
     return updated

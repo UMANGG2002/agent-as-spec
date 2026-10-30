@@ -55,24 +55,38 @@ def configure_telemetry() -> None:
 
     resource = Resource.create({SERVICE_NAME: settings.otel_service_name})
 
-    tracer_provider = TracerProvider(resource=resource)
+    # Parent-based ratio sampling: at 100k req/s, tracing every request costs
+    # more than the requests; sample ~1-5% of new traces, but always keep a
+    # child span when its parent was sampled so traces stay whole.
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+
+    tracer_provider = TracerProvider(
+        resource=resource, sampler=ParentBased(TraceIdRatioBased(settings.otel_trace_sample_ratio))
+    )
+    span_exporter = None
     if settings.otel_exporter_otlp_endpoint:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         span_exporter = OTLPSpanExporter(endpoint=f"{settings.otel_exporter_otlp_endpoint}/v1/traces")
-    else:
+    elif settings.otel_console_export:
         span_exporter = ConsoleSpanExporter(out=_CurrentStdout())
-    tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
+    if span_exporter is not None:
+        tracer_provider.add_span_processor(
+            BatchSpanProcessor(span_exporter, max_queue_size=8192, max_export_batch_size=1024)
+        )
     trace.set_tracer_provider(tracer_provider)
 
+    readers = []
     if settings.otel_exporter_otlp_endpoint:
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 
-        metric_exporter = OTLPMetricExporter(endpoint=f"{settings.otel_exporter_otlp_endpoint}/v1/metrics")
-    else:
-        metric_exporter = ConsoleMetricExporter(out=_CurrentStdout())
-    reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=15_000)
-    meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+        readers.append(PeriodicExportingMetricReader(
+            OTLPMetricExporter(endpoint=f"{settings.otel_exporter_otlp_endpoint}/v1/metrics"),
+            export_interval_millis=15_000))
+    elif settings.otel_console_export:
+        readers.append(PeriodicExportingMetricReader(ConsoleMetricExporter(out=_CurrentStdout()),
+                                                     export_interval_millis=15_000))
+    meter_provider = MeterProvider(resource=resource, metric_readers=readers)
     metrics.set_meter_provider(meter_provider)
 
     logging.getLogger(__name__).info(
@@ -92,3 +106,14 @@ guardrail_blocks_total = meter.create_counter(
 )
 tool_latency_ms = meter.create_histogram("tool_latency_ms", unit="ms")
 model_latency_ms = meter.create_histogram("model_latency_ms", unit="ms")
+http_requests_total = meter.create_counter("http_requests_total", description="HTTP requests by route/status class")
+http_request_ms = meter.create_histogram("http_request_ms", unit="ms")
+invocations_started_total = meter.create_counter("agent_invocations_total", description="Agent invocations by outcome")
+invocation_ms = meter.create_histogram("agent_invocation_ms", unit="ms")
+queue_wait_ms = meter.create_histogram("agent_queue_wait_ms", unit="ms", description="Enqueue -> runner start")
+model_tokens_total = meter.create_counter("model_tokens_total", description="Model tokens by tenant/direction")
+cache_events_total = meter.create_counter("cache_events_total", description="Cache hits/misses by namespace")
+
+eval_runs_total = meter.create_counter("eval_runs_total", description="Eval runs by trigger and gate result")
+eval_pass_rate = meter.create_histogram("eval_pass_rate", description="Hard-check pass rate per eval run (0-1)")
+eval_online_score = meter.create_histogram("eval_online_score", description="Judge/heuristic score of sampled live runs (0-1)")

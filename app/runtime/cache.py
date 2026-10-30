@@ -1,80 +1,96 @@
-"""Application-level idempotent tool-result cache, keyed by
-`(capability_id, args_hash, tenant_id)` -- deliberately separate from ADK's
-own `ContextCacheConfig` (app/main.py), per the architecture doc's advanced
-patterns section: ADK's cache saves on re-sending model tokens for a reused
-system prompt; this cache saves on not calling the tool at all for a
-repeated, side-effect-free call (a lookup-style GET, say).
+"""Tool-result cache and idempotency store, on the shared Redis.
 
-Uses Redis when reachable (shared across processes), an in-memory dict
-otherwise -- same fallback shape as runtime/redis_streams.py.
+  - `cache_key` -- repeatable, side-effect-free calls (lookup-style GETs):
+    a TTL window shared across runs of one tenant.
+  - `idempotency_key` -- non-idempotent calls, scoped to one run/invocation
+    + step + args: a retry, a work-queue redelivery, or resuming an
+    invocation after a crash or a long approval pause returns the first
+    execution's result instead of repeating the side effect.
+  - `acquire_execution_lock` -- a short NX lock on the idempotency key so
+    two workers that both picked up the same (redelivered) job can't run the
+    same side-effecting call concurrently; the loser waits for the winner's
+    result.
+
+Keys hash-tag the run id, so one run's keys share a Redis Cluster slot.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import json
-import time
+import uuid
 from typing import Any
 
-import redis.asyncio as aioredis
+import orjson
 
-from app.config import settings
+from app.core import redis as redis_core
 
-_redis: aioredis.Redis | None = None
-_redis_unavailable = False
-_memory: dict[str, tuple[float, Any]] = {}
+_RELEASE = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
+return 0
+"""
+
+
+def _args_hash(args: dict[str, Any]) -> str:
+    return hashlib.sha256(orjson.dumps(args, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()[:24]
 
 
 def cache_key(tenant_id: str, capability_id: str, args: dict[str, Any]) -> str:
-    """For repeatable, side-effect-free calls (a lookup-style GET) -- a TTL
-    window shared across runs."""
-    args_hash = hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode()).hexdigest()[:16]
-    return f"toolcache:{tenant_id}:{capability_id}:{args_hash}"
+    return redis_core.key("toolcache", tenant_id, capability_id, _args_hash(args))
 
 
 def idempotency_key(run_id: str, step_id: str, args: dict[str, Any]) -> str:
-    """For non-idempotent calls (anything a capability's `ToolSchema` doesn't
-    mark `idempotent: true`) -- scoped to one run+step rather than a TTL
-    window, so a retry, a Redis-stream redelivery, or resuming a run after a
-    long HIL pause replays the same result instead of re-executing a
-    side-effecting call. See the architecture doc's "Dynamic policy engine"
-    section."""
-    args_hash = hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode()).hexdigest()[:16]
-    return f"idempotency:{run_id}:{step_id}:{args_hash}"
-
-
-async def _get_redis() -> aioredis.Redis | None:
-    global _redis, _redis_unavailable
-    if _redis_unavailable:
-        return None
-    if _redis is None:
-        _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
-    try:
-        await _redis.ping()
-    except Exception:  # noqa: BLE001
-        _redis_unavailable = True
-        return None
-    return _redis
+    return redis_core.key("idem", run_id, step_id, _args_hash(args))
 
 
 async def get(key: str) -> Any | None:
-    client = await _get_redis()
-    if client is not None:
+    try:
+        client = await redis_core.get_redis()
         raw = await client.get(key)
-        return json.loads(raw) if raw else None
-    entry = _memory.get(key)
-    if entry is None:
+    except Exception:  # noqa: BLE001
         return None
-    expires_at, value = entry
-    if time.time() > expires_at:
-        _memory.pop(key, None)
-        return None
-    return value
+    return orjson.loads(raw) if raw else None
 
 
-async def set(key: str, value: Any, *, ttl_seconds: int = 300) -> None:
-    client = await _get_redis()
-    if client is not None:
-        await client.set(key, json.dumps(value, default=str), ex=ttl_seconds)
+async def set(key: str, value: Any, *, ttl_seconds: int = 300) -> None:  # noqa: A001 - module API
+    try:
+        client = await redis_core.get_redis()
+        await client.set(key, orjson.dumps(value, default=str), ex=ttl_seconds)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def acquire_execution_lock(key: str, *, ttl_ms: int = 120_000) -> str | None:
+    token = uuid.uuid4().hex
+    try:
+        client = await redis_core.get_redis()
+        ok = await client.set(key + ":lock", token, nx=True, px=ttl_ms)
+    except Exception:  # noqa: BLE001 - no Redis: run (single-process dev)
+        return token
+    return token if ok else None
+
+
+async def release_execution_lock(key: str | None, token: str | None) -> None:
+    if not key or not token:
         return
-    _memory[key] = (time.time() + ttl_seconds, value)
+    try:
+        client = await redis_core.get_redis()
+        await client.eval(_RELEASE, 1, key + ":lock", token)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def wait_for_result(key: str, *, timeout: float = 30.0) -> Any | None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        value = await get(key)
+        if value is not None:
+            return value
+        try:
+            client = await redis_core.get_redis()
+            if not await client.exists(key + ":lock"):
+                return await get(key)
+        except Exception:  # noqa: BLE001
+            return None
+        await asyncio.sleep(0.1)
+    return None

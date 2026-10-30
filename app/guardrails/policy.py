@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Literal
 
 
@@ -30,7 +31,10 @@ class GuardrailPolicy:
     id: str
     tenant_id: str = "*"
     denied_tool_name_patterns: list[str] = field(default_factory=list)
-    blocked_input_keywords: list[str] = field(default_factory=lambda: ["ignore previous instructions", "system prompt"])
+    blocked_input_keywords: list[str] = field(default_factory=lambda: [
+        "ignore previous instructions", "ignore all previous instructions", "disregard previous instructions",
+        "system prompt", "reveal your instructions",
+    ])
     pii_redaction_patterns: dict[str, str] = field(
         default_factory=lambda: {
             r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b": "[redacted-email]",
@@ -61,22 +65,40 @@ def get_policy(policy_id: str) -> GuardrailPolicy:
     return _POLICIES.get(policy_id, DEFAULT_POLICY)
 
 
+_ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
+
+
+def normalize(text: str) -> str:
+    """Defeat trivial obfuscation before keyword screening: Unicode
+    compatibility folding (full-width letters etc.), zero-width characters
+    removed, case-folded, whitespace collapsed."""
+    import unicodedata
+
+    folded = unicodedata.normalize("NFKC", text).translate(_ZERO_WIDTH).casefold()
+    return " ".join(folded.split())
+
+
+@lru_cache(maxsize=4096)
+def _compiled(pattern: str) -> re.Pattern:
+    return re.compile(pattern)
+
+
 def contains_blocked_keyword(text: str, policy: GuardrailPolicy) -> str | None:
-    lowered = text.lower()
+    lowered = normalize(text[:200_000])
     for kw in policy.blocked_input_keywords:
-        if kw.lower() in lowered:
+        if normalize(kw) in lowered:
             return kw
     return None
 
 
 def tool_name_denied(tool_name: str, policy: GuardrailPolicy) -> bool:
-    return any(re.search(pattern, tool_name) for pattern in policy.denied_tool_name_patterns)
+    return any(_compiled(pattern).search(tool_name) for pattern in policy.denied_tool_name_patterns)
 
 
 def redact(text: str, policy: GuardrailPolicy) -> str:
-    out = text
+    out = text[: policy.max_output_chars * 2]  # bound regex work on huge outputs
     for pattern, replacement in policy.pii_redaction_patterns.items():
-        out = re.sub(pattern, replacement, out)
+        out = _compiled(pattern).sub(replacement, out)
     if len(out) > policy.max_output_chars:
         out = out[: policy.max_output_chars] + "...[truncated]"
     return out
@@ -112,7 +134,7 @@ def register_approval_rule(rule: ApprovalRule) -> None:
 
 
 def _pattern_matches(pattern: str, value: str) -> bool:
-    return pattern == "*" or bool(re.search(pattern, value))
+    return pattern == "*" or bool(_compiled(pattern).search(value))
 
 
 def requires_approval(
@@ -142,21 +164,79 @@ def requires_approval(
 
 # --- Adaptive guardrails: block-count feedback loop ------------------------
 
-# Minimal build: an in-process, unwindowed counter. Production would window
-# this (e.g. Redis INCR + EXPIRE per (tenant, capability, hour)) so an old
-# spike doesn't permanently escalate a pair; the interface below is the seam.
-_block_counts: dict[tuple[str, str], int] = {}
-_block_counts_reset_at: float = time.time()
+# Windowed, fleet-wide counters: each block is INCRed into an hourly Redis
+# bucket (`gb:{tenant}:<capability>:<hour>`, expiring after two windows), and
+# the count is a sliding-window estimate -- current bucket + the previous one
+# weighted by how much of it still overlaps the window. So escalation sees
+# blocks from every replica, and an old spike stops escalating after an hour
+# instead of forever. A local copy of the same windows backs the synchronous
+# API and covers Redis being briefly unavailable.
+WINDOW_SECONDS = 3600
+_local_buckets: dict[tuple[str, str, int], int] = {}
+
+
+def _bucket(now: float | None = None) -> int:
+    return int((now or time.time()) // WINDOW_SECONDS)
+
+
+def _sliding(current: int, previous: int, now: float | None = None) -> int:
+    elapsed = ((now or time.time()) % WINDOW_SECONDS) / WINDOW_SECONDS
+    return int(current + previous * (1 - elapsed))
+
+
+def _redis_key(tenant_id: str, capability_id: str, bucket: int) -> str:
+    from app.core.redis import key
+
+    return key("gb", tenant_id, capability_id, str(bucket))
+
+
+async def _record_block_redis(tenant_id: str, capability_id: str, bucket: int) -> None:
+    try:
+        from app.core.redis import get_redis
+
+        client = await get_redis()
+        k = _redis_key(tenant_id, capability_id, bucket)
+        pipe = client.pipeline(transaction=False)
+        pipe.incr(k)
+        pipe.expire(k, 2 * WINDOW_SECONDS)
+        await pipe.execute()
+    except Exception:  # noqa: BLE001 - counters are advisory
+        pass
 
 
 def record_block(tenant_id: str, capability_id: str) -> int:
-    key = (tenant_id, capability_id)
-    _block_counts[key] = _block_counts.get(key, 0) + 1
-    return _block_counts[key]
+    b = _bucket()
+    key_ = (tenant_id, capability_id, b)
+    _local_buckets[key_] = _local_buckets.get(key_, 0) + 1
+    for stale in [k for k in _local_buckets if k[2] < b - 1]:
+        _local_buckets.pop(stale, None)
+    try:
+        import asyncio
+
+        asyncio.get_running_loop().create_task(_record_block_redis(tenant_id, capability_id, b))
+    except RuntimeError:
+        pass
+    return block_count(tenant_id, capability_id)
 
 
 def block_count(tenant_id: str, capability_id: str) -> int:
-    return _block_counts.get((tenant_id, capability_id), 0)
+    b = _bucket()
+    return _sliding(_local_buckets.get((tenant_id, capability_id, b), 0),
+                    _local_buckets.get((tenant_id, capability_id, b - 1), 0))
+
+
+async def block_count_async(tenant_id: str, capability_id: str) -> int:
+    local = block_count(tenant_id, capability_id)
+    try:
+        from app.core.redis import get_redis
+
+        client = await get_redis()
+        b = _bucket()
+        cur, prev = await client.mget(_redis_key(tenant_id, capability_id, b),
+                                      _redis_key(tenant_id, capability_id, b - 1))
+        return max(local, _sliding(int(cur or 0), int(prev or 0)))
+    except Exception:  # noqa: BLE001
+        return local
 
 
 def resolve_policy(*, tenant_id: str, brand_id: str, capability_id: str, base_policy_id: str = "default") -> GuardrailPolicy:

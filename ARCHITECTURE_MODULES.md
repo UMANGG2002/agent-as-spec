@@ -1,5 +1,10 @@
 # Module-wise architecture
 
+> **Superseded in parts by the production rebuild** -- MongoDB is gone (specs are
+> in Postgres), and new layers were added (`app/core`, `app/sessions`, `app/memory`,
+> `app/tenancy`). See [`docs/PRODUCTION_ARCHITECTURE.md`](docs/PRODUCTION_ARCHITECTURE.md)
+> for the current architecture; this file describes the pre-rebuild module map.
+
 This is the module-by-module map of what's actually in this repository --
 companion to the fuller architecture write-up (the Claude Docs artifact this
 project started from), but scoped to "what's a Python package here and what

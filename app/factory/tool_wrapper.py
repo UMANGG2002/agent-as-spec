@@ -82,18 +82,29 @@ async def call_capability(
     tool_schema = next((t for t in capability.tools if t.name == tool_name), None)
     is_idempotent = bool(tool_schema and tool_schema.idempotent)
     idem_key = None
+    idem_lock = None
     if not is_idempotent:
+        # Exactly-once *effect* for side-effecting calls: a cached result
+        # short-circuits a retry/redelivery/resume; a short Redis lock stops
+        # two workers executing the same (run, step, args) concurrently.
         idem_key = result_cache.idempotency_key(ctx.run_id, step_id, args)
         cached = await result_cache.get(idem_key)
         if cached is not None:
             return ToolCallResult(ok=True, output=cached)
+        idem_lock = await result_cache.acquire_execution_lock(idem_key)
+        if idem_lock is None:
+            cached = await result_cache.wait_for_result(idem_key)
+            if cached is not None:
+                return ToolCallResult(ok=True, output=cached)
+            return ToolCallResult(ok=False, error="the same call is already executing; retry shortly")
 
-    needs_approval, reason = (False, None) if approval_handled else guardrail_engine.needs_approval(
+    needs_approval, reason = (False, None) if approval_handled else await guardrail_engine.needs_approval_async(
         policy=ctx.policy, capability=capability, tool_name=tool_name, identity=ctx.identity, cost_estimate=cost_estimate
     )
     if needs_approval:
         status = await approval_store.request_approval(ctx.run_id, step_id, reason=reason or "approval required")
         if status != ApprovalStatus.APPROVED:
+            await result_cache.release_execution_lock(idem_key, idem_lock)
             return ToolCallResult(ok=False, blocked_by=ctx.policy.id, error=f"approval not granted ({status.value}): {reason}")
 
     try:
@@ -118,54 +129,80 @@ async def call_capability(
         },
     ) as span:
         try:
-            output = await _dispatch(capability, tool_name, args, bearer_token=tool_token.encoded)
+            output = await _resilient_dispatch(capability, tool_name, args, bearer_token=tool_token.encoded,
+                                               idempotent=is_idempotent)
         except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a failed step, not a crash
             span.record_exception(exc)
-            return ToolCallResult(ok=False, error=str(exc))
+            await result_cache.release_execution_lock(idem_key, idem_lock)
+            return ToolCallResult(ok=False, error=f"{type(exc).__name__}: {exc}"[:2000])
         finally:
             tool_latency_ms.record(
                 (time.perf_counter() - start) * 1000,
-                {"capability_id": capability.id, "tenant_id": ctx.identity.tenant_id},
+                {"capability_kind": capability.kind.value},
             )
 
     after = guardrail_engine.after_tool(policy=ctx.policy, capability=capability, output=output)
     if after.blocked:
+        await result_cache.release_execution_lock(idem_key, idem_lock)
         return ToolCallResult(ok=False, blocked_by=ctx.policy.id, error=after.reason)
 
     final_output = after.redacted_output if after.redacted_output is not None else output
     if idem_key is not None:
-        await result_cache.set(idem_key, final_output, ttl_seconds=3600)
+        await result_cache.set(idem_key, final_output, ttl_seconds=86_400)
+        await result_cache.release_execution_lock(idem_key, idem_lock)
     return ToolCallResult(ok=True, output=final_output)
+
+
+async def _resilient_dispatch(capability: Capability, tool_name: str, args: dict[str, Any], *, bearer_token: str,
+                              idempotent: bool) -> Any:
+    """Every outbound call: bulkhead (bounded concurrency per capability) ->
+    circuit breaker (fail fast while the endpoint is down) -> timeout ->
+    retries with jittered backoff, only for idempotent tools and only on
+    transport errors (never re-send a side-effecting call blindly)."""
+    import asyncio
+
+    import httpx
+
+    from app.config import settings
+    from app.core import resilience
+
+    cb = resilience.breaker(f"cap:{capability.id}")
+
+    async def _once() -> Any:
+        return await asyncio.wait_for(_dispatch(capability, tool_name, args, bearer_token=bearer_token),
+                                      timeout=settings.tool_call_timeout_seconds)
+
+    async def _guarded() -> Any:
+        if not idempotent:
+            return await cb.call(_once)
+        return await cb.call(lambda: resilience.retry(
+            _once, attempts=settings.tool_call_max_retries,
+            retry_on=(httpx.TransportError, asyncio.TimeoutError, ConnectionError)))
+
+    return await resilience.with_bulkhead(f"cap:{capability.id}", _guarded)
 
 
 async def _dispatch(capability: Capability, tool_name: str, args: dict[str, Any], *, bearer_token: str) -> Any:
     """Source-specific invocation. Each branch is a thin adapter call -- the
     guardrail/auth/telemetry wrapping above is identical regardless of kind."""
     if capability.kind == CapabilityKind.MCP:
-        from app.registry.adapters import mcp_adapter
+        from app.registry.adapters import mcp_pool
 
-        toolset = mcp_adapter.build_toolset(capability)
-        try:
-            tools = await toolset.get_tools()
-            match = next((t for t in tools if t.name == tool_name), None)
-            if match is None:
-                raise ValueError(f"tool '{tool_name}' not found on capability {capability.id}")
-            return await match.run_async(args=args, tool_context=None)
-        finally:
-            await toolset.close()
+        # Pooled, long-lived MCP connections (the old code connected, listed
+        # tools and disconnected on every single call).
+        return await mcp_pool.call_tool(capability, tool_name, args)
 
     if capability.kind == CapabilityKind.OPENAPI:
-        import httpx
+        from app.core import http as http_core
 
-        base_url = capability.endpoint_ref.openapi_base_url or ""
+        base_url = (capability.endpoint_ref.openapi_base_url or "").rstrip("/")
+        await http_core.check_url(base_url)
         headers = {capability.auth_header_name or "Authorization": f"Bearer {bearer_token}"}
-        async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=30) as client:
-            # Minimal build: the operationId both names the tool and is sent
-            # as a query hint; a production adapter would keep the full
-            # method+path mapping parsed in openapi_adapter.py instead.
-            resp = await client.post(f"/{tool_name}", json=args)
-            resp.raise_for_status()
-            return resp.json()
+        # The operationId names the tool; a fuller adapter keeps the parsed
+        # method+path mapping from openapi_adapter.py.
+        resp = await http_core.client().post(f"{base_url}/{tool_name}", json=args, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
     if capability.kind == CapabilityKind.AGENT_CARD:
         import json

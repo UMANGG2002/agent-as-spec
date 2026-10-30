@@ -26,7 +26,7 @@ class KnowledgeDocumentRow(Base):
     title: Mapped[str] = mapped_column(String)
     content: Mapped[str] = mapped_column(String)
     tags: Mapped[list] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 async def add_document(
@@ -40,17 +40,33 @@ async def add_document(
     return _to_schema(row)
 
 
-async def list_for_tenant(session: AsyncSession, tenant_id: str) -> list[KnowledgeDocument]:
-    stmt = select(KnowledgeDocumentRow).where(KnowledgeDocumentRow.tenant_id == tenant_id)
+async def list_for_tenant(session: AsyncSession, tenant_id: str, *, limit: int = 500) -> list[KnowledgeDocument]:
+    stmt = (select(KnowledgeDocumentRow).where(KnowledgeDocumentRow.tenant_id == tenant_id)
+            .order_by(KnowledgeDocumentRow.created_at.desc()).limit(limit))
     rows = (await session.execute(stmt)).scalars().all()
     return [_to_schema(row) for row in rows]
 
 
 async def search(session: AsyncSession, tenant_id: str, query: str, *, limit: int = 10) -> list[KnowledgeSearchResult]:
-    docs = await list_for_tenant(session, tenant_id)
-    if not query:
-        return [KnowledgeSearchResult(document=d, score=1.0) for d in docs[:limit]]
-    terms = {t for t in query.lower().split() if t}
+    """SQL narrows to documents matching any term (Postgres: full-text index,
+    migrations/sql/0006; SQLite: LIKE), Python ranks the small candidate set.
+    Previously every document of the tenant was loaded on every search."""
+    from sqlalchemy import String, cast, or_, text
+
+    limit = max(1, min(limit, 100))
+    terms = [t for t in query.lower().split() if t][:12]
+    if not terms:
+        return [KnowledgeSearchResult(document=d, score=1.0) for d in await list_for_tenant(session, tenant_id, limit=limit)]
+    stmt = select(KnowledgeDocumentRow).where(KnowledgeDocumentRow.tenant_id == tenant_id)
+    tag_match = [cast(KnowledgeDocumentRow.tags, String).ilike(f"%{t}%") for t in terms]
+    if session.bind.dialect.name == "postgresql":
+        stmt = stmt.where(or_(text("search_tsv @@ websearch_to_tsquery('simple', :q)").bindparams(
+            q=" OR ".join(terms)), *tag_match))
+    else:
+        stmt = stmt.where(or_(*[(KnowledgeDocumentRow.title + " " + KnowledgeDocumentRow.content).ilike(f"%{t}%")
+                                for t in terms], *tag_match))
+    docs = [_to_schema(r) for r in (await session.execute(stmt.limit(limit * 10))).scalars().all()]
+    terms = set(terms)
     results = []
     for doc in docs:
         haystack = f"{doc.title} {doc.content} {' '.join(doc.tags)}".lower()

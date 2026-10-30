@@ -27,7 +27,7 @@ Loading happens once at import (ADK's agent loader needs `root_agent` to be
 a real agent object, not something awaitable), on a dedicated thread with
 its own event loop -- `adk web` imports this module from inside its running
 loop, where `asyncio.run` would refuse. That thread uses its *own*
-short-lived database engine and Mongo client and closes both before
+short-lived database engine and disposes of it before
 returning: async DB connections are tied to the event loop that opened
 them, so sharing the app-wide ones from a loop that's about to close would
 leave them broken for every later request in this process -- including the
@@ -83,36 +83,29 @@ async def _build(session):  # noqa: ANN001
         c.id: c
         for c in await registry_store.list_for_tenant(session, TEST_IDENTITY.tenant_id, granted_capability_ids=granted)
     }
-    specs = spec_router.filter_specs(await specs_store.list_specs(TEST_IDENTITY.tenant_id), _only())
+    specs = spec_router.filter_specs(
+        await specs_store.list_specs(TEST_IDENTITY.tenant_id, session=session), _only())
     return spec_router.compile_sub_agents(specs, visible, TEST_IDENTITY, model=_model_override)
 
 
 async def _import_time_build():
-    """`_build`, with its own engine and Mongo client, both closed before
-    this thread's event loop goes away (see the module docstring)."""
+    """`_build`, with its own engine, disposed before this thread's event
+    loop goes away (see the module docstring)."""
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    from app.db import Base
+    from app.db import Base, _all_models
 
-    saved_mongo_client = specs_store._client
-    specs_store._client = None
+    _all_models()
     engine = create_async_engine(settings.database_url)
     try:
-        from app.knowledge import store as _knowledge_store  # noqa: F401 - register tables
-        from app.marketplace import models as _marketplace_models  # noqa: F401
-        from app.registry import store as _registry_store  # noqa: F401
-        from app.runtime import approvals as _approvals  # noqa: F401
-
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        if engine.dialect.name != "postgresql":
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
         async with async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)() as session:
+            session.info["tenant_id"] = TEST_IDENTITY.tenant_id
             return await _build(session)
     finally:
         await engine.dispose()
-        ours = specs_store._client
-        if ours is not None and ours is not saved_mongo_client:
-            ours.close()
-        specs_store._client = saved_mongo_client
 
 
 def _run_sync(coro):
@@ -145,7 +138,7 @@ async def reload_specs() -> dict:
     it's available without restarting adk web."""
     from app.db import session_scope
 
-    async with session_scope() as session:
+    async with session_scope(tenant_id=TEST_IDENTITY.tenant_id) as session:
         agents, loaded, skipped = await _build(session)
     spec_router.mount_sub_agents(root_agent, agents)
     _state["loaded"], _state["skipped"] = loaded, skipped

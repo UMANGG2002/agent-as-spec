@@ -120,7 +120,7 @@ async def _capabilities_for_spec(spec) -> dict[str, Capability]:
     `run_service._execute` does for the HTTP run path -- filtered to what
     this tenant can still actually use, since a capability can be revoked or
     ungranted after a spec was approved against it."""
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         granted = await marketplace_service.granted_capability_ids(session, DEV_IDENTITY.tenant_id)
         visible = await registry_store.list_for_tenant(session, DEV_IDENTITY.tenant_id, granted_capability_ids=granted)
     by_id = {c.id: c for c in visible}
@@ -177,7 +177,7 @@ async def list_pending_approvals() -> dict:
     from app.runtime import approvals as approvals_store
 
     await _ensure_ready()
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         rows = await approvals_store.list_for_tenant(session, DEV_IDENTITY.tenant_id, status="pending")
         return {"pending": [approvals_store.to_dict(r) for r in rows]}
 
@@ -192,7 +192,7 @@ async def decide_approval(approval_id: str, approve: bool, note: str = "") -> di
 
     await _ensure_ready()
     try:
-        async with session_scope() as session:
+        async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
             row = await approvals_store.decide(
                 session, approval_id, approve=approve, decided_by=DEV_IDENTITY.user_id, via="chat", note=note
             )
@@ -311,7 +311,7 @@ async def list_capabilities() -> dict:
     (its own, plus anything already granted to it). Call this first if
     you're not sure what's available before planning."""
     await _ensure_ready()
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         granted = await marketplace_service.granted_capability_ids(session, DEV_IDENTITY.tenant_id)
         caps = await registry_store.list_for_tenant(session, DEV_IDENTITY.tenant_id, granted_capability_ids=granted)
     return {
@@ -334,7 +334,7 @@ async def register_demo_capability() -> dict:
     port = echo_server.ensure_running()
     base_url = f"http://127.0.0.1:{port}"
 
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         existing = await registry_store.list_for_tenant(session, DEV_IDENTITY.tenant_id)
         for cap in existing:
             if cap.name == DEMO_CAPABILITY_NAME:
@@ -380,7 +380,7 @@ async def make_plan(intent: str, tool_context: ToolContext) -> dict:
     the conversation so `run_last_plan` can run it without you repeating it.
     """
     await _ensure_ready()
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         plan = await create_plan(session, DEV_IDENTITY, intent)
     tool_context.state["last_plan"] = plan.model_dump(mode="json")
     return {
@@ -407,7 +407,7 @@ async def run_last_plan(tool_context: ToolContext) -> dict:
     if not plan.steps:
         return {"error": "that plan has no steps (the planner found no usable capability) -- nothing to run"}
 
-    async with session_scope() as session:
+    async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
         run_id = await run_service.start_run(session, DEV_IDENTITY, plan)
 
     events: list[dict] = []
@@ -491,7 +491,7 @@ async def approve_last_plan(
         return {"error": "that plan has no steps (the planner found no usable capability) -- nothing to approve"}
 
     try:
-        async with session_scope() as session:
+        async with session_scope(tenant_id=DEV_IDENTITY.tenant_id) as session:
             spec = await specs_service.approve_plan(
                 session,
                 DEV_IDENTITY,

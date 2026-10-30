@@ -196,7 +196,7 @@ async def test_approve_plan_persists_the_runtime_config(session):
     runtime = AgentRuntimeConfig(pattern=AgentPattern.SEQUENTIAL,
                                  callbacks=[CallbackConfig(hook=CallbackHook.BEFORE_TOOL, kind="validate_args_schema")])
     spec = await specs_service.approve_plan(session, _IDENTITY, name="configured", plan=plan, runtime=runtime)
-    reloaded = await specs_store.get_spec(spec.spec_id)
+    reloaded = await specs_store.get_spec(spec.spec_id, tenant_id=spec.tenant_id)
     assert reloaded.runtime == runtime
 
 
